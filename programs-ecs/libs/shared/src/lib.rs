@@ -76,6 +76,21 @@ pub fn parse_json_str<'a>(json: &'a [u8], key: &[u8]) -> &'a [u8] {
     &[]
 }
 
+// ─── Pyth Lazer oracle ───
+
+const PRICE_OFFSET: usize = 73;
+
+/// Read SOL/USD price from a Pyth Lazer account.
+/// The account must be passed as remaining_accounts.
+/// Returns raw u64 (8 decimals — divide by 10^8 for dollars).
+pub fn read_pyth_price(account: &AccountInfo) -> Result<u64> {
+    let data = account.try_borrow_data()?;
+    require!(data.len() >= PRICE_OFFSET + 8, GameError::InvalidMove);
+    Ok(u64::from_le_bytes(
+        data[PRICE_OFFSET..PRICE_OFFSET + 8].try_into().unwrap()
+    ))
+}
+
 // ─── Errors ───
 
 #[error_code]
