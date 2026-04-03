@@ -1,33 +1,42 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
+import { Connection } from "@solana/web3.js";
+import { GameListing, fetchAllGames } from "../lib/fetch-games";
 
-interface GameListing {
-  id: string;
-  players: number;
-  maxPlayers: number;
-  countdown: number; // seconds remaining in lobby, 0 = in progress
-  status: "lobby" | "playing";
-}
-
-const TOTAL_SKINS = 5; // will grow as you add props_2, props_3, etc.
+const TOTAL_SKINS = 5;
+const REFRESH_INTERVAL = 5000; // refresh game list every 5s
 
 interface Props {
   price: number | null;
-  onCreateGame: (skin: number) => void;
-  onJoinGame: (id: string, skin: number) => void;
+  connection: Connection | null;
+  onCreateGame: (skin: number, name: string) => void;
+  onJoinGame: (gameId: string, skin: number, name: string) => void;
 }
 
-// Fake games for now — will be replaced by on-chain data
-const FAKE_GAMES: GameListing[] = [
-  { id: "game-1", players: 4, maxPlayers: 10, countdown: 22, status: "lobby" },
-  { id: "game-2", players: 7, maxPlayers: 10, countdown: 0, status: "playing" },
-  { id: "game-3", players: 2, maxPlayers: 10, countdown: 35, status: "lobby" },
-];
-
-export default function MainMenu({ price, onCreateGame, onJoinGame }: Props) {
+export default function MainMenu({ price, connection, onCreateGame, onJoinGame }: Props) {
   const [playerName, setPlayerName] = useState("");
   const [selectedSkin, setSelectedSkin] = useState(1);
+  const [games, setGames] = useState<GameListing[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch games on mount + interval
+  useEffect(() => {
+    if (!connection) return;
+
+    const refresh = async () => {
+      const list = await fetchAllGames(connection);
+      setGames(list);
+      setLoading(false);
+    };
+
+    refresh();
+    const id = setInterval(refresh, REFRESH_INTERVAL);
+    return () => clearInterval(id);
+  }, [connection]);
+
+  // Compute countdown for lobby games
+  const now = Math.floor(Date.now() / 1000);
 
   return (
     <div className="h-screen w-screen flex flex-col items-center justify-center relative overflow-hidden">
@@ -75,7 +84,6 @@ export default function MainMenu({ price, onCreateGame, onJoinGame }: Props) {
               className="object-contain"
               style={{ imageRendering: "pixelated" }}
               onError={(e) => {
-                // Fallback to skin 1 if image doesn't exist
                 (e.target as HTMLImageElement).src = "/props_1_front.png";
               }}
             />
@@ -110,7 +118,7 @@ export default function MainMenu({ price, onCreateGame, onJoinGame }: Props) {
 
         {/* Create Game button */}
         <button
-          onClick={() => onCreateGame(selectedSkin)}
+          onClick={() => onCreateGame(selectedSkin, playerName)}
           disabled={!price || playerName.length === 0}
           className="w-full max-w-xs py-4 bg-green-700 hover:bg-green-600 disabled:bg-gray-800 disabled:text-gray-600 border-2 border-green-900 disabled:border-gray-700 text-white text-xl transition"
           style={{ textShadow: "0 2px 0 rgba(0,0,0,0.3)" }}
@@ -124,34 +132,45 @@ export default function MainMenu({ price, onCreateGame, onJoinGame }: Props) {
             — OR JOIN A GAME —
           </div>
 
+          {loading && (
+            <div className="text-center text-gray-500 text-sm py-4">
+              Loading games...
+            </div>
+          )}
+
           <div className="flex flex-col gap-2">
-            {FAKE_GAMES.map((game) => (
-              <button
-                key={game.id}
-                onClick={() => onJoinGame(game.id, selectedSkin)}
-                disabled={game.status === "playing" || playerName.length === 0}
-                className="w-full flex items-center justify-between px-4 py-3 bg-black/40 border border-gray-700 hover:border-gray-500 disabled:opacity-70 disabled:cursor-not-allowed disabled:hover:border-gray-700 transition"
-              >
-                <div className="flex items-center gap-3">
-                  <div className={`w-3 h-3 rounded-full ${
-                    game.status === "lobby" ? "bg-green-500 animate-pulse" : "bg-red-500"
-                  }`} />
-                  <span className="text-white text-sm">{game.id}</span>
-                </div>
-                <div className="flex items-center gap-4 text-xs">
-                  <span className="text-gray-300">{game.players}/{game.maxPlayers}</span>
-                  {game.status === "lobby" ? (
-                    <span className="text-yellow-400">{game.countdown}s</span>
-                  ) : (
-                    <span className="text-red-400">IN GAME</span>
-                  )}
-                </div>
-              </button>
-            ))}
+            {games.map((game) => {
+              const isLobby = game.status === 0;
+              const countdown = isLobby ? Math.max(0, game.lobbyEnd - now) : 0;
+
+              return (
+                <button
+                  key={game.pubkey}
+                  onClick={() => onJoinGame(game.pubkey, selectedSkin, playerName)}
+                  disabled={!isLobby || playerName.length === 0}
+                  className="w-full flex items-center justify-between px-4 py-3 bg-black/40 border border-gray-700 hover:border-gray-500 disabled:opacity-70 disabled:cursor-not-allowed disabled:hover:border-gray-700 transition"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`w-3 h-3 rounded-full ${
+                      isLobby ? "bg-green-500 animate-pulse" : "bg-red-500"
+                    }`} />
+                    <span className="text-white text-sm">{game.pubkey.slice(0, 8)}...</span>
+                  </div>
+                  <div className="flex items-center gap-4 text-xs">
+                    <span className="text-gray-300">{game.activePlayers}/10</span>
+                    {isLobby ? (
+                      <span className="text-yellow-400">{countdown}s</span>
+                    ) : (
+                      <span className="text-red-400">IN GAME</span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
           </div>
 
-          {FAKE_GAMES.length === 0 && (
-            <div className="text-center text-gray-600 text-sm py-4">
+          {!loading && games.length === 0 && (
+            <div className="text-center text-gray-400 text-sm py-4">
               No games available — create one!
             </div>
           )}
