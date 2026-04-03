@@ -26,3 +26,4 @@ serde = { version = "1.0", features = ["derive"] }
 game-config = { path = "../../components/game-config", features = ["cpi"] }
 player-state = { path = "../../components/player-state", features = ["cpi"] }
 player-registry = { path = "../../components/player-registry", features = ["cpi"] }
+shared = { path = "../../libs/shared" }

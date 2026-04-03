@@ -625,6 +625,7 @@ dependencies = [
  "player-registry",
  "player-state",
  "serde",
+ "shared",
 ]
 
 [[package]]
@@ -1102,6 +1103,7 @@ dependencies = [
  "player-registry",
  "player-state",
  "serde",
+ "shared",
 ]
 
 [[package]]
@@ -1264,6 +1266,7 @@ dependencies = [
  "player-registry",
  "player-state",
  "serde",
+ "shared",
 ]
 
 [[package]]
@@ -1726,6 +1729,13 @@ checksum = "75872d278a8f37ef87fa0ddbda7802605cb18344497949862c0d4dcb291eba60"
 dependencies = [
  "digest 0.10.7",
  "keccak",
+]
+
+[[package]]
+name = "shared"
+version = "0.1.0"
+dependencies = [
+ "bolt-lang",
 ]
 
 [[package]]
@@ -3198,6 +3208,7 @@ dependencies = [
  "player-registry",
  "player-state",
  "serde",
+ "shared",
 ]
 
 [[package]]
@@ -3219,6 +3230,7 @@ dependencies = [
  "player-registry",
  "player-state",
  "serde",
+ "shared",
 ]
 
 [[package]]
