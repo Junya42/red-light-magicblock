@@ -8,7 +8,7 @@ import Image from "next/image";
 import { useSolPrice } from "./hooks/useSolPrice";
 import MainMenu from "./components/MainMenu";
 import Game from "./components/Game";
-import { createGameAndDelegate, createSessionAndJoin, GameState } from "./lib/bolt-actions";
+import { createAndJoinGame, GameState } from "./lib/bolt-actions";
 import { Session } from "@magicblock-labs/bolt-sdk";
 
 const ER_RPC = "http://localhost:7799";
@@ -71,6 +71,7 @@ export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
   const [log, setLog] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [phase, setPhase] = useState<"" | "creating" | "joining">("");
 
   const erConnection = useMemo(() => new Connection(ER_RPC, "confirmed"), []);
   const { setVisible: setWalletModalVisible } = useWalletModal();
@@ -96,32 +97,26 @@ export default function Home() {
       return;
     }
     setLoading(true);
+    setLog([]);
     setSkin(selectedSkin);
     setPlayerName(name);
     try {
-      // 1. Create game on L1 + delegate to ER
-      addLog("Creating game...");
-      const state = await createGameAndDelegate(
-        connection, erConnection, publicKey, signAllTransactions, addLog,
+      setPhase("creating");
+      const { gameState: state, session: sess } = await createAndJoinGame(
+        connection, erConnection, publicKey, signAllTransactions,
+        name, selectedSkin, addLog,
       );
       setGameState(state);
-
-      // 2. Create session + join
-      addLog("Joining game...");
-      const { session: sess, playerEntityPda } = await createSessionAndJoin(
-        connection, erConnection, publicKey, signAllTransactions,
-        state.worldPda, state.gameEntityPda, true, name, selectedSkin, addLog,
-      );
       setSession(sess);
-      setGameState({ ...state, playerEntityPda });
 
-      addLog("Game created! Entering lobby...");
+      addLog("Done! Entering lobby...");
       setScreen("game");
     } catch (e: any) {
       addLog(`Error: ${e.message}`);
       console.error(e);
     }
     setLoading(false);
+    setPhase("");
   }, [publicKey, signAllTransactions, connection, erConnection, addLog]);
 
   const handleJoinGame = useCallback(async (gameId: string, selectedSkin: number, name: string) => {
@@ -159,10 +154,27 @@ export default function Home() {
         </div>
         {/* Loading overlay */}
         {loading && (
-          <div className="fixed inset-0 z-50 bg-black/70 flex flex-col items-center justify-center gap-4">
-            <div className="text-2xl text-yellow-400 animate-pulse">Creating game...</div>
-            <div className="max-w-md text-sm text-gray-400 text-center">
-              {log.slice(-3).map((l, i) => <div key={i}>{l}</div>)}
+          <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center gap-4 px-4">
+            <div className="text-3xl text-yellow-400 animate-pulse">
+              Setting up game...
+            </div>
+            <div className="w-full max-w-lg bg-black/60 border border-gray-700 p-4 max-h-[60vh] overflow-y-auto flex flex-col gap-1">
+              {log.map((l, i) => {
+                const isPhaseHeader = l.startsWith("---");
+                const isError = l.startsWith("Error");
+                return (
+                  <div
+                    key={i}
+                    className={
+                      isPhaseHeader ? "text-yellow-400 text-sm mt-2" :
+                      isError ? "text-red-400 text-sm" :
+                      "text-gray-400 text-xs"
+                    }
+                  >
+                    {l}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
