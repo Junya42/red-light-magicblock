@@ -3,11 +3,11 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { PricePoint } from "../hooks/useSolPrice";
 import Image from "next/image";
 
-const PLAYER_SIZE = 24;
+const PLAYER_SIZE = 100;
 const DOLL_SIZE = 170;
 const MOVE_SPEED = 4;
-const CHECK_INTERVAL_MS = 5_000;
-const RED_DURATION_MS = 3_000;
+const CHECK_INTERVAL_MS = 2_000;  // check price every 2s
+const RED_DURATION_MS = 2_500;   // red light lasts 2.5s
 
 interface Player {
   id: string;
@@ -60,6 +60,7 @@ export default function Game({ price, history }: Props) {
     color: PLAYER_COLORS[0],
   });
   const [keysDown, setKeysDown] = useState<Set<string>>(new Set());
+  const [isMoving, setIsMoving] = useState(false);
   const [priceLog, setPriceLog] = useState<{ time: number; price: number; result: "up" | "down" }[]>([]);
   const animRef = useRef<number>(0);
   const gameStartRef = useRef(0);
@@ -147,14 +148,15 @@ export default function Game({ price, history }: Props) {
         if (keysDown.has("ArrowLeft") || keysDown.has("a")) dx -= MOVE_SPEED;
         if (keysDown.has("ArrowRight") || keysDown.has("d")) dx += MOVE_SPEED;
 
-        const isMoving = dx !== 0 || dy !== 0;
+        const moving = dx !== 0 || dy !== 0;
+        setIsMoving(moving);
 
         // RED LIGHT — moving = death
-        if (light === "red" && isMoving) {
+        if (light === "red" && moving) {
           return { ...prev, alive: false };
         }
 
-        if (!isMoving) return prev;
+        if (!moving) return prev;
 
         const newX = Math.max(PLAYER_SIZE / 2, Math.min(fieldW - PLAYER_SIZE / 2, prev.x + dx));
         const newY = Math.max(0, Math.min(fieldH, prev.y + dy));
@@ -255,62 +257,57 @@ export default function Game({ price, history }: Props) {
           />
         </div>
 
-        {/* Player */}
-        {player.alive && (
-          <div
-            className="absolute z-30 rounded-full border-2 transition-all duration-75"
-            style={{
-              left: player.x - PLAYER_SIZE / 2,
-              top: player.y - PLAYER_SIZE / 2,
-              width: PLAYER_SIZE,
-              height: PLAYER_SIZE,
-              backgroundColor: player.color,
-              borderColor: "white",
-              boxShadow: `0 0 8px ${player.color}`,
-            }}
-          />
-        )}
+        {/* Player sprite */}
+        {(() => {
+          let sprite = "/props_1_front.png"; // idle
+          if (!player.alive) sprite = "/props_1_dead.png";
+          else if (player.finished) sprite = "/props_1_front.png";
+          else if (isMoving) sprite = "/props_1_back.png";
 
-        {/* Death marker */}
-        {!player.alive && (
-          <div
-            className="absolute z-30 text-2xl"
-            style={{ left: player.x - 12, top: player.y - 12 }}
-          >
-            💀
-          </div>
-        )}
+          return (
+            <div
+              className="absolute z-30"
+              style={{
+                left: player.x - PLAYER_SIZE / 2,
+                top: player.y - PLAYER_SIZE,
+                width: PLAYER_SIZE,
+                height: PLAYER_SIZE * 1.2,
+              }}
+            >
+              <Image
+                src={sprite}
+                alt="player"
+                fill
+                className="object-contain"
+              />
+              {/* Shadow */}
+              <div
+                className="absolute rounded-full"
+                style={{
+                  bottom: 8,
+                  left: '15%',
+                  width: '70%',
+                  height: 8,
+                  background: 'radial-gradient(ellipse, rgba(0,0,0,0.35) 0%, transparent 70%)',
+                }}
+              />
+            </div>
+          );
+        })()}
 
-        {/* Game over overlay */}
+        {/* Game over text — no overlay, just floating text */}
         {gameState === "ended" && (
-          <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/60">
-            <div className="text-center">
-              <div className={`text-4xl font-bold mb-2 ${player.finished ? "text-green-400" : "text-red-400"}`}>
-                {player.finished ? "YOU WIN!" : "ELIMINATED"}
-              </div>
-              <div className="text-gray-400 font-mono text-sm">
-                Time: {elapsed}s
-              </div>
+          <div className="absolute top-1/3 left-1/2 -translate-x-1/2 z-40 text-center">
+            <div className={`text-5xl font-bold drop-shadow-lg ${player.finished ? "text-green-400" : "text-red-500"}`}>
+              {player.finished ? "YOU WIN!" : "ELIMINATED"}
+            </div>
+            <div className="text-white/70 font-mono text-sm mt-2 drop-shadow">
+              {elapsed}s
             </div>
           </div>
         )}
       </div>
 
-      {/* Price log */}
-      {priceLog.length > 0 && (
-        <div className="flex gap-2 flex-wrap max-w-full px-4">
-          {priceLog.map((log, i) => (
-            <div
-              key={i}
-              className={`px-2 py-1 rounded text-xs font-mono ${
-                log.result === "up" ? "bg-green-900/50 text-green-400" : "bg-red-900/50 text-red-400"
-              }`}
-            >
-              ${log.price.toFixed(2)} {log.result === "up" ? "▲" : "▼"}
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* Controls hint */}
       {gameState === "playing" && (
