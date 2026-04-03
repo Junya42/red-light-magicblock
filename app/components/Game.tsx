@@ -264,12 +264,15 @@ export default function Game({ price, history }: Props) {
           else if (player.finished) sprite = "/props_1_front.png";
           else if (isMoving) sprite = "/props_1_back.png";
 
+          // Hop effect — alternate between 0 and -6px every 150ms when moving
+          const hopOffset = (isMoving && player.alive && !player.finished) ? (Math.floor(Date.now() / 130) % 2 === 0 ? -10 : 0) : 0;
+
           return (
             <div
               className="absolute z-30"
               style={{
                 left: player.x - PLAYER_SIZE / 2,
-                top: player.y - PLAYER_SIZE,
+                top: player.y - PLAYER_SIZE + hopOffset,
                 width: PLAYER_SIZE,
                 height: PLAYER_SIZE * 1.2,
               }}
