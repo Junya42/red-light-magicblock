@@ -3,15 +3,11 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { PricePoint } from "../hooks/useSolPrice";
 import Image from "next/image";
 
-const FIELD_WIDTH = 800;
-const FIELD_HEIGHT = 600;
 const PLAYER_SIZE = 24;
-const DOLL_SIZE = 80;
+const DOLL_SIZE = 170;
 const MOVE_SPEED = 4;
-const CHECK_INTERVAL_MS = 5_000; // check price every 5s
-const RED_DURATION_MS = 3_000;   // red light lasts 3s
-const FINISH_Y = 40;             // top line
-const START_Y = FIELD_HEIGHT - 60; // bottom line
+const CHECK_INTERVAL_MS = 5_000;
+const RED_DURATION_MS = 3_000;
 
 interface Player {
   id: string;
@@ -30,6 +26,26 @@ interface Props {
 const PLAYER_COLORS = ["#22d3ee", "#a78bfa", "#f472b6", "#facc15", "#4ade80", "#fb923c"];
 
 export default function Game({ price, history }: Props) {
+  const fieldRef = useRef<HTMLDivElement>(null);
+  const [fieldW, setFieldW] = useState(800);
+  const [fieldH, setFieldH] = useState(600);
+
+  // Measure field on mount + resize
+  useEffect(() => {
+    const measure = () => {
+      if (fieldRef.current) {
+        setFieldW(fieldRef.current.clientWidth);
+        setFieldH(fieldRef.current.clientHeight);
+      }
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+
+  const FINISH_Y = 40;
+  const START_Y = fieldH - 60;
+
   const [gameState, setGameState] = useState<"lobby" | "playing" | "ended">("lobby");
   const [light, setLight] = useState<"green" | "red">("green");
   const [lastPrice, setLastPrice] = useState<number | null>(null);
@@ -37,8 +53,8 @@ export default function Game({ price, history }: Props) {
   const [redUntil, setRedUntil] = useState(0);
   const [player, setPlayer] = useState<Player>({
     id: "local",
-    x: FIELD_WIDTH / 2,
-    y: START_Y,
+    x: 400,
+    y: 540,
     alive: true,
     finished: false,
     color: PLAYER_COLORS[0],
@@ -56,7 +72,7 @@ export default function Game({ price, history }: Props) {
     setLastCheckTime(Date.now());
     setRedUntil(0);
     setPriceLog([]);
-    setPlayer((p) => ({ ...p, x: FIELD_WIDTH / 2, y: START_Y, alive: true, finished: false }));
+    setPlayer((p) => ({ ...p, x: fieldW / 2, y: START_Y, alive: true, finished: false }));
     gameStartRef.current = Date.now();
   }, [price]);
 
@@ -140,8 +156,8 @@ export default function Game({ price, history }: Props) {
 
         if (!isMoving) return prev;
 
-        const newX = Math.max(PLAYER_SIZE / 2, Math.min(FIELD_WIDTH - PLAYER_SIZE / 2, prev.x + dx));
-        const newY = Math.max(0, Math.min(FIELD_HEIGHT, prev.y + dy));
+        const newX = Math.max(PLAYER_SIZE / 2, Math.min(fieldW - PLAYER_SIZE / 2, prev.x + dx));
+        const newY = Math.max(0, Math.min(fieldH, prev.y + dy));
 
         // Reached the top?
         if (newY <= FINISH_Y) {
@@ -169,7 +185,7 @@ export default function Game({ price, history }: Props) {
   const elapsed = gameState !== "lobby" ? ((Date.now() - gameStartRef.current) / 1000).toFixed(1) : "0";
 
   return (
-    <div className="flex flex-col items-center gap-4">
+    <div className="flex flex-col items-center gap-4 w-full h-full flex-1">
       {/* HUD */}
       <div className="flex items-center gap-6">
         <div className="text-2xl font-mono">
@@ -202,10 +218,10 @@ export default function Game({ price, history }: Props) {
         )}
       </div>
 
-      {/* Game field */}
+      {/* Game field — fullscreen */}
       <div
-        className="relative overflow-hidden border-2 border-gray-700 rounded-xl"
-        style={{ width: FIELD_WIDTH, height: FIELD_HEIGHT }}
+        ref={fieldRef}
+        className="relative overflow-hidden flex-1 w-full"
       >
         {/* Background */}
         <Image
@@ -225,8 +241,8 @@ export default function Game({ price, history }: Props) {
         <div
           className="absolute z-20 transition-transform duration-300"
           style={{
-            left: FIELD_WIDTH / 2 - DOLL_SIZE / 2,
-            top: 20,
+            left: fieldW / 2 - DOLL_SIZE / 2,
+            top: -40,
             width: DOLL_SIZE,
             height: DOLL_SIZE * 1.5,
           }}
@@ -282,7 +298,7 @@ export default function Game({ price, history }: Props) {
 
       {/* Price log */}
       {priceLog.length > 0 && (
-        <div className="flex gap-2 flex-wrap max-w-[800px]">
+        <div className="flex gap-2 flex-wrap max-w-full px-4">
           {priceLog.map((log, i) => (
             <div
               key={i}
