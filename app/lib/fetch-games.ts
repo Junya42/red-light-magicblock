@@ -94,6 +94,8 @@ export async function fetchAllGames(
       .filter((g) => {
         if (g.status > 1) return false;
         if (g.lobbyEnd === 0 && g.startTime === 0) return false;
+        // Game over after lobby (60s) + playing (150s) = 210s from start
+        if (g.lobbyEnd > 0 && maxLobbyEnd > 0 && g.lobbyEnd + 150 < maxLobbyEnd - 60) return false;
         if (maxLobbyEnd > 0 && g.lobbyEnd > 0 && g.lobbyEnd < maxLobbyEnd - 30 * 60) return false;
         return true;
       })

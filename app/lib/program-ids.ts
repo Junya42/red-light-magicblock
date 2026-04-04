@@ -12,6 +12,7 @@ export const SPAWN_PLAYER_SYSTEM = new PublicKey("5kurbimAJh3B9VB4wNC99JZan6pdo6
 export const START_GAME_SYSTEM = new PublicKey("2zKVpP5ovwYVfcTtEj1n4sRWdBoRcDKVk8AbzEAo8B8k");
 export const MOVE_PLAYER_SYSTEM = new PublicKey("B41Kov8d1moDABp8RdSTRauZUNpwuNwvc312erhWF7w1");
 export const CHECK_PRICE_SYSTEM = new PublicKey("14aiGdhHAwHjMCJb8F4agsa4NNWdyZCBQjvBcX3Fib6K");
+export const END_GAME_SYSTEM = new PublicKey("9xmJrU5Z7HqT5kaK8kAmHJyQ691PnYHH4bEL9NtEDEGx");
 
 // All components for game entity init + delegation
 export const ALL_COMPONENTS = [

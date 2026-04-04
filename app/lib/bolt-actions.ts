@@ -25,6 +25,7 @@ import {
   START_GAME_SYSTEM,
   MOVE_PLAYER_SYSTEM,
   CHECK_PRICE_SYSTEM,
+  END_GAME_SYSTEM,
 } from "./program-ids";
 
 let ER_VALIDATOR = new PublicKey("mAGicPQYBMvcYveUZA5F5UNNwyHvfYh5xkLS2Fr1mev");
@@ -414,4 +415,24 @@ export async function startGame(
   });
   const send = sendSessionTx(session);
   return send(applyStart.transaction, connection);
+}
+
+// ─── End game (after 2min30 of playing) ───
+export async function endGame(
+  connection: Connection,
+  session: Session,
+  worldPda: PublicKey,
+  gameEntityPda: PublicKey,
+): Promise<string> {
+  const applyEnd = await ApplySystem({
+    authority: session.signer.publicKey,
+    systemId: END_GAME_SYSTEM,
+    world: worldPda,
+    entities: [
+      { entity: gameEntityPda, components: [{ componentId: GAME_CONFIG_COMPONENT }] },
+    ],
+    session,
+  });
+  const send = sendSessionTx(session);
+  return send(applyEnd.transaction, connection);
 }

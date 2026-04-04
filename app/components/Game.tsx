@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { FindComponentPda, Session } from "@magicblock-labs/bolt-sdk";
 import { PricePoint } from "../hooks/useSolPrice";
-import { startGame as sendStartGame, movePlayer as sendMovePlayer, checkPrice as sendCheckPrice } from "../lib/bolt-actions";
+import { startGame as sendStartGame, movePlayer as sendMovePlayer, checkPrice as sendCheckPrice, endGame as sendEndGame } from "../lib/bolt-actions";
 import {
   GAME_CONFIG_COMPONENT,
   PLAYER_STATE_COMPONENT,
@@ -164,6 +164,8 @@ export default function Game({
   const [lastPrice, setLastPrice] = useState<number | null>(null);
   const [otherPlayers, setOtherPlayers] = useState<OtherPlayer[]>([]);
   const [leaderboard, setLeaderboard] = useState<string[]>([]); // pubkeys in finish order
+  const [gameCountdown, setGameCountdown] = useState(150); // 2min30
+  const [endGameSent, setEndGameSent] = useState(false);
   const gameStartRef = useRef(0);
   const movePendingRef = useRef(false);
   const otherSubsRef = useRef<number[]>([]);
@@ -334,6 +336,28 @@ export default function Game({
       .catch((e) => { console.error("start-game failed:", e); setStartGameSent(false); });
   }, [gameStatus, lobbyCountdown, startGameSent, session, worldPda, gameEntityPda, erConnection, pythPricePda]);
 
+  // ─── Game countdown (2min30 = 150s from playing start) ───
+  useEffect(() => {
+    if (gameStatus !== "playing") return;
+    const id = setInterval(() => {
+      const elapsed = (Date.now() - gameStartRef.current) / 1000;
+      setGameCountdown(Math.max(0, Math.ceil(150 - elapsed)));
+    }, 200);
+    return () => clearInterval(id);
+  }, [gameStatus]);
+
+  // ─── Auto-send endGame when countdown reaches 0 ───
+  useEffect(() => {
+    if (gameStatus !== "playing" || gameCountdown > 0 || endGameSent) return;
+    if (!session || !worldPda || !gameEntityPda || !erConnection) return;
+
+    setEndGameSent(true);
+    console.log("Time's up — sending end-game...");
+    sendEndGame(erConnection, session, worldPda, gameEntityPda)
+      .then(() => { console.log("end-game confirmed!"); setGameStatus("ended"); })
+      .catch((e) => { console.error("end-game failed:", e); setGameStatus("ended"); });
+  }, [gameStatus, gameCountdown, endGameSent, session, worldPda, gameEntityPda, erConnection]);
+
   // ─── checkPrice interval (every 3s during playing) ───
   useEffect(() => {
     if (gameStatus !== "playing") return;
@@ -421,7 +445,7 @@ export default function Game({
         {gameStatus === "playing" && !isSpectate && (
           <div className="flex items-baseline gap-1 mt-1">
             <span className="text-gray-500 text-[10px]">Y:</span>
-            <span className="text-gray-800 text-sm md:text-sm">{onChainY}/200</span>
+            <span className="text-gray-800 text-sm">{onChainY}/200</span>
           </div>
         )}
 
@@ -434,6 +458,19 @@ export default function Game({
           </button>
         )}
       </div>
+
+      {/* Game countdown — below HUD card */}
+      {gameStatus === "playing" && !isSpectate && (
+        <div className="absolute z-50 flex flex-col items-center" style={{ top: fieldW < 600 ? 170 : 200, right: fieldW < 600 ? 10 : 16 }}>
+          <div className={`text-4xl md:text-5xl font-bold drop-shadow-lg ${gameCountdown <= 30 ? "text-red-500" : "text-yellow-400"}`} style={{
+            textShadow: gameCountdown <= 30
+              ? "0 0 20px rgba(239,68,68,0.5), 0 4px 0 #7f1d1d"
+              : "0 0 20px rgba(250,204,21,0.5), 0 4px 0 #b45309"
+          }}>
+            {Math.floor(gameCountdown / 60)}:{(gameCountdown % 60).toString().padStart(2, "0")}
+          </div>
+        </div>
+      )}
 
       {/* Game field — fullscreen */}
       <div ref={fieldRef} className="relative overflow-hidden flex-1 w-full">
@@ -496,7 +533,7 @@ export default function Game({
           return (
             <div key={op.statePda} className="absolute z-25" style={{ left: op.xPos - pSize / 2, top: opScreenY - pSize + opHop, width: pSize, height: pSize * 1.2 }}>
               <Image src={opSprite} alt={op.name} fill className="object-contain" style={{ opacity: 0.85 }} />
-              <div className="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-sm text-white font-bold" style={{ textShadow: "0 1px 4px rgba(0,0,0,0.9)" }}>
+              <div className="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-lg text-white font-bold" style={{ textShadow: "0 1px 4px rgba(0,0,0,0.9)" }}>
                 {op.name}
               </div>
             </div>
@@ -519,7 +556,7 @@ export default function Game({
             >
               <Image src={sprite} alt="player" fill className="object-contain" />
               {/* My name in pink/violet */}
-              <div className="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-sm font-bold" style={{ color: "#e879f9", textShadow: "0 1px 4px rgba(0,0,0,0.9)" }}>
+              <div className="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-lg font-bold" style={{ color: "#e879f9", textShadow: "0 1px 4px rgba(0,0,0,0.9)" }}>
                 {playerName}
               </div>
               <div
