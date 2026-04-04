@@ -28,6 +28,7 @@ interface OtherPlayer {
   name: string;
   skin: number;
   y: number;
+  prevY: number;
   alive: boolean;
   finished: boolean;
   xPos: number; // fixed random X position on screen
@@ -217,6 +218,7 @@ export default function Game({
               name: ps.name || "???",
               skin: ps.skin || 1,
               y: ps.y,
+              prevY: ps.y,
               alive: ps.alive,
               finished: ps.finished,
               xPos: hashToX(statePda.toBase58(), fieldW),
@@ -242,7 +244,7 @@ export default function Game({
           if (!ps) return;
           setOtherPlayers(prev => prev.map(op =>
             op.statePda === statePda.toBase58()
-              ? { ...op, y: ps.y, alive: ps.alive, finished: ps.finished }
+              ? { ...op, prevY: op.y, y: ps.y, alive: ps.alive, finished: ps.finished }
               : op
           ));
         });
@@ -303,7 +305,7 @@ export default function Game({
   // ─── Keyboard (only W / ArrowUp) ───
   useEffect(() => {
     const onDown = (e: KeyboardEvent) => {
-      if (["ArrowUp", "w"].includes(e.key)) {
+      if (["ArrowUp", "w", "z"].includes(e.key)) {
         e.preventDefault();
         setKeysDown(prev => new Set(prev).add(e.key));
       }
@@ -321,7 +323,7 @@ export default function Game({
     if (gameStatus !== "playing" || !playerAlive || playerFinished) return;
     if (!session || !worldPda || !gameEntityPda || !playerEntityPda || !erConnection) return;
 
-    const hasUp = keysDown.has("ArrowUp") || keysDown.has("w");
+    const hasUp = keysDown.has("ArrowUp") || keysDown.has("w") || keysDown.has("z");
     setIsMoving(hasUp);
     if (!hasUp) return;
 
@@ -437,11 +439,13 @@ export default function Game({
         {/* Other players */}
         {gameStatus === "playing" && otherPlayers.map((op) => {
           const opScreenY = START_Y - (op.y / 300) * (START_Y - FINISH_LINE_Y);
-          const opSprite = !op.alive ? `/props_${op.skin}_dead.png` : `/props_${op.skin}_back.png`;
+          const opMoving = op.y !== op.prevY;
+          const opSprite = !op.alive ? `/props_${op.skin}_dead.png` : opMoving ? `/props_${op.skin}_back.png` : `/props_${op.skin}_front.png`;
+          const opHop = (opMoving && op.alive) ? (Math.floor(Date.now() / 200) % 2 === 0 ? -4 : 0) : 0;
           return (
-            <div key={op.statePda} className="absolute z-25" style={{ left: op.xPos - PLAYER_SIZE / 2, top: opScreenY - PLAYER_SIZE, width: PLAYER_SIZE, height: PLAYER_SIZE * 1.2 }}>
+            <div key={op.statePda} className="absolute z-25" style={{ left: op.xPos - PLAYER_SIZE / 2, top: opScreenY - PLAYER_SIZE + opHop, width: PLAYER_SIZE, height: PLAYER_SIZE * 1.2 }}>
               <Image src={opSprite} alt={op.name} fill className="object-contain" style={{ opacity: 0.85 }} />
-              <div className="absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs text-white font-bold" style={{ textShadow: "0 1px 3px rgba(0,0,0,0.8)" }}>
+              <div className="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-sm text-white font-bold" style={{ textShadow: "0 1px 4px rgba(0,0,0,0.9)" }}>
                 {op.name}
               </div>
             </div>
@@ -455,7 +459,7 @@ export default function Game({
           else if (playerFinished) sprite = `/props_${skin}_front.png`;
           else if (isMoving) sprite = `/props_${skin}_back.png`;
 
-          const hopOffset = (isMoving && playerAlive && !playerFinished) ? (Math.floor(Date.now() / 130) % 2 === 0 ? -10 : 0) : 0;
+          const hopOffset = (isMoving && playerAlive && !playerFinished) ? (Math.floor(Date.now() / 200) % 2 === 0 ? -4 : 0) : 0;
 
           return (
             <div
@@ -464,7 +468,7 @@ export default function Game({
             >
               <Image src={sprite} alt="player" fill className="object-contain" />
               {/* My name in pink/violet */}
-              <div className="absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs font-bold" style={{ color: "#e879f9", textShadow: "0 1px 4px rgba(0,0,0,0.9)" }}>
+              <div className="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-sm font-bold" style={{ color: "#e879f9", textShadow: "0 1px 4px rgba(0,0,0,0.9)" }}>
                 {playerName}
               </div>
               <div
@@ -536,10 +540,19 @@ export default function Game({
                 {shareCopied ? "LINK COPIED!" : "SHARE GAME"}
               </button>
 
-              <div className="text-lg text-white font-bold mt-3" style={{ textShadow: "0 2px 6px rgba(0,0,0,0.8)" }}>
-                Press W or Arrow Up to move — don&apos;t move during RED LIGHT
+              <div className="text-xl text-yellow-300 font-bold mt-3" style={{ textShadow: "0 2px 8px rgba(0,0,0,0.9), 0 0 20px rgba(250,204,21,0.3)" }}>
+                Press W / Z / Arrow Up to move — DON&apos;T MOVE during RED LIGHT
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Controls hint during playing */}
+        {gameStatus === "playing" && (
+          <div className="absolute bottom-4 left-0 w-full text-center z-30">
+            <span className="text-lg text-yellow-300 font-bold" style={{ textShadow: "0 2px 8px rgba(0,0,0,0.9), 0 0 20px rgba(250,204,21,0.3)" }}>
+              Press W / Z / Arrow Up — DON&apos;T MOVE during RED LIGHT
+            </span>
           </div>
         )}
 
@@ -556,11 +569,6 @@ export default function Game({
         )}
       </div>
 
-      {gameStatus === "playing" && (
-        <div className="text-xs text-gray-600 font-mono">
-          Press W or Arrow Up — DON&apos;T MOVE during RED LIGHT
-        </div>
-      )}
     </div>
   );
 }
