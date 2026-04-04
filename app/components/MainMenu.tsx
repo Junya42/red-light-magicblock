@@ -39,9 +39,9 @@ export default function MainMenu({ price, connection, onCreateGame, onJoinGame }
   const now = Math.floor(Date.now() / 1000);
 
   return (
-    <div className="h-screen w-screen flex flex-col items-center justify-center relative overflow-hidden">
+    <div className="min-h-screen w-screen flex flex-col items-center justify-center relative overflow-y-auto">
       {/* Background */}
-      <div className="absolute inset-0" style={{
+      <div className="fixed inset-0" style={{
         backgroundImage: "url('/LOBBY.jpg')",
         backgroundSize: "cover",
         backgroundPosition: "center",
@@ -49,7 +49,7 @@ export default function MainMenu({ price, connection, onCreateGame, onJoinGame }
       }} />
 
       {/* Content */}
-      <div className="relative z-10 flex flex-col items-center gap-3 w-full max-w-xl px-4">
+      <div className="relative z-10 flex flex-col items-center gap-3 w-full max-w-xl px-4 py-8">
 
         {/* Logo */}
         <div className="flex flex-col items-center gap-2">

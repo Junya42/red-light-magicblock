@@ -60,9 +60,18 @@ export async function fetchAllGames(connection: Connection): Promise<GameListing
       });
     }
 
-    // Sort: Waiting first, then Playing, filter out Finished
+    // Filter: no Finished, no invalid lobby_end, no stale (lobby closed > 20min ago)
+    const now = Math.floor(Date.now() / 1000);
     return games
-      .filter((g) => g.status <= 1)
+      .filter((g) => {
+        if (g.status > 1) return false;
+        if (g.lobbyEnd === 0) return false;
+        // If lobby ended more than 20min ago and still "Waiting", it's stale
+        if (g.status === 0 && g.lobbyEnd < now - 20 * 60) return false;
+        // If Playing and started more than 20min ago, hide too
+        if (g.status === 1 && g.startTime > 0 && g.startTime < now - 20 * 60) return false;
+        return true;
+      })
       .sort((a, b) => a.status - b.status || b.lobbyEnd - a.lobbyEnd);
   } catch (e) {
     console.error("Failed to fetch games:", e);
