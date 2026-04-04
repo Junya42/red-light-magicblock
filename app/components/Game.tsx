@@ -591,8 +591,8 @@ export default function Game({
                 {shareCopied ? "LINK COPIED!" : "SHARE GAME"}
               </button>
 
-              <div className="text-xl text-yellow-300 font-bold mt-3" style={{ textShadow: "0 2px 8px rgba(0,0,0,0.9), 0 0 20px rgba(250,204,21,0.3)" }}>
-                Press W / Z / Arrow Up to move — DON&apos;T MOVE during RED LIGHT
+              <div className="text-base md:text-xl text-yellow-300 font-bold mt-3" style={{ textShadow: "0 2px 8px rgba(0,0,0,0.9), 0 0 20px rgba(250,204,21,0.3)" }}>
+                {fieldW < 600 ? "Push the button to move — DON'T MOVE during RED LIGHT" : "Press W / Z / Arrow Up to move — DON\u0027T MOVE during RED LIGHT"}
               </div>
             </div>
           </div>
