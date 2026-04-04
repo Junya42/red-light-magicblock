@@ -144,7 +144,9 @@ export default function Game({
     return () => window.removeEventListener("resize", measure);
   }, []);
 
-  const FINISH_LINE_Y = 40;
+  // Lines at fixed fractions of screen height
+  const FINISH_LINE_Y = fieldH * (2 / 9);  // 2/9 = finish (top area)
+  const START_LINE_Y = fieldH - 30;        // bottom of screen = start
 
   // ─── State ───
   const [gameStatus, setGameStatus] = useState<"lobby" | "playing" | "ended">("lobby");
@@ -166,9 +168,8 @@ export default function Game({
   const movePendingRef = useRef(false);
   const otherSubsRef = useRef<number[]>([]);
 
-  // Map on-chain Y (0=start, 300=finish) to screen Y
-  const START_Y = fieldH - 60;
-  const screenY = START_Y - (onChainY / 200) * (START_Y - FINISH_LINE_Y);
+  // Map on-chain Y (0=start at 7/9, 200=finish at 0/9) to screen Y
+  const screenY = START_LINE_Y - (onChainY / 200) * (START_LINE_Y - FINISH_LINE_Y);
   const playerX = fieldW / 2;
 
   // ─── Subscribe to GameConfig on ER ───
@@ -389,7 +390,7 @@ export default function Game({
   // Resolve leaderboard pubkeys to player names
   const leaderboardNames = leaderboard.map((pubkey, i) => {
     const player = lobbyPlayers.find(p => p.pubkey === pubkey);
-    return { rank: i + 1, name: player?.name || pubkey.slice(0, 6) + "...", pubkey };
+    return { rank: i + 1, name: player?.name || pubkey.slice(0, 6) + "...", skin: player?.skin || 1, pubkey };
   });
 
   return (
@@ -436,15 +437,19 @@ export default function Game({
       <div ref={fieldRef} className="relative overflow-hidden flex-1 w-full">
         <Image src="/BACKGROUND.png" alt="field" fill className="object-fill" priority />
 
-        {/* Finish line label */}
-        <div className="absolute top-8 left-0 w-full text-center text-xs text-white/50 font-mono z-10">
-          FINISH
-        </div>
+        {/* Finish line (2/9) — checkerboard pattern */}
+        <div className="absolute left-0 w-full z-10" style={{
+          top: FINISH_LINE_Y - 12,
+          height: 24,
+          backgroundImage: `repeating-conic-gradient(#000 0% 25%, #fff 0% 50%)`,
+          backgroundSize: "24px 24px",
+        }} />
 
-        {/* Doll + lights */}
+
+        {/* Doll + lights — above finish line (0/9) */}
         <div
           className="absolute z-20 transition-transform duration-300"
-          style={{ left: fieldW / 2 - DOLL_SIZE / 2, top: 0, width: DOLL_SIZE, height: DOLL_SIZE * 1.5 }}
+          style={{ left: fieldW / 2 - DOLL_SIZE / 2, top: FINISH_LINE_Y - DOLL_SIZE * 1.5 - 10, width: DOLL_SIZE, height: DOLL_SIZE * 1.5 }}
         >
           <Image
             src={light === "red" ? "/girls front.png" : "/girls back.png"}
@@ -456,7 +461,7 @@ export default function Game({
         {/* Light right */}
         <div
           className="absolute z-19"
-          style={{ left: fieldW / 2 + DOLL_SIZE / 2 + 10, top: 0, width: 140, height: 200 }}
+          style={{ left: fieldW / 2 + DOLL_SIZE / 2 + 10, top: FINISH_LINE_Y - 200 - 10, width: 140, height: 200 }}
         >
           <Image
             src={light === "red" ? "/red lights.png" : "/green lights.png"}
@@ -469,7 +474,7 @@ export default function Game({
         {/* Light left (mirrored) */}
         <div
           className="absolute z-19"
-          style={{ left: fieldW / 2 - DOLL_SIZE / 2 - 150, top: 0, width: 140, height: 200, transform: "scaleX(-1)" }}
+          style={{ left: fieldW / 2 - DOLL_SIZE / 2 - 150, top: FINISH_LINE_Y - 200 - 10, width: 140, height: 200, transform: "scaleX(-1)" }}
         >
           <Image
             src={light === "red" ? "/red lights.png" : "/green lights.png"}
@@ -482,7 +487,7 @@ export default function Game({
 
         {/* Other players */}
         {gameStatus === "playing" && otherPlayers.map((op) => {
-          const opScreenY = START_Y - (op.y / 200) * (START_Y - FINISH_LINE_Y);
+          const opScreenY = START_LINE_Y - (op.y / 200) * (START_LINE_Y - FINISH_LINE_Y);
           const opMoving = op.y !== op.prevY;
           const opSprite = !op.alive ? `/props_${op.skin}_dead.png` : opMoving ? `/props_${op.skin}_back.png` : `/props_${op.skin}_front.png`;
           const opHop = (opMoving && op.alive) ? (Math.floor(Date.now() / 200) % 2 === 0 ? -4 : 0) : 0;
@@ -600,46 +605,35 @@ export default function Game({
           </div>
         )}
 
-        {/* Leaderboard — small during playing, large at end */}
-        {gameStatus === "playing" && leaderboardNames.length > 0 && (
-          <div className="absolute bottom-14 left-3 z-40 bg-black/60 border border-gray-700 px-3 py-2 min-w-[140px]">
+
+        {/* Leaderboard — top left, visible when there are finishers */}
+        {(gameStatus === "playing" || gameStatus === "ended") && leaderboardNames.length > 0 && (
+          <div className="absolute top-3 left-3 z-40 bg-black/60 border border-gray-700 px-3 py-2">
             <div className="text-xs text-yellow-400 font-bold mb-1">LEADERBOARD</div>
-            {leaderboardNames.map((e) => (
-              <div key={e.pubkey} className="flex items-center gap-2 text-xs text-white/80">
-                <span className="text-yellow-400">#{e.rank}</span>
-                <span>{e.name}</span>
-              </div>
-            ))}
+            {leaderboardNames.map((e) => {
+              const isMe = e.name === playerName;
+              return (
+                <div key={e.pubkey} className="flex items-center gap-2 py-1">
+                  <span className="text-yellow-400 text-sm w-6">#{e.rank}</span>
+                  <div className="relative" style={{ width: 28, height: 34 }}>
+                    <Image src={`/props_${e.skin}_front.png`} alt={e.name} fill className="object-contain" style={{ imageRendering: "pixelated" }} />
+                  </div>
+                  <span className={`text-sm font-bold ${isMe ? "text-fuchsia-400" : "text-white"}`} style={{ textShadow: "0 1px 3px rgba(0,0,0,0.9)" }}>{e.name}</span>
+                </div>
+              );
+            })}
           </div>
         )}
 
         {/* Game over overlay */}
         {gameStatus === "ended" && (
-          <div className="absolute inset-0 z-40 flex flex-col items-center justify-center">
-            <div className="absolute inset-0 bg-black/60" />
-            <div className="relative z-10 flex flex-col items-center gap-4">
+          <div className="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none">
+            <div className="absolute inset-0 bg-black/50" />
+            <div className="relative z-10 flex flex-col items-center gap-3 pointer-events-auto">
               <div className={`text-5xl font-bold drop-shadow-lg ${playerFinished ? "text-green-400" : "text-red-500"}`}>
                 {playerFinished ? "YOU WIN!" : "ELIMINATED"}
               </div>
-              <div className="text-white/70 text-sm drop-shadow">
-                {elapsed}s
-              </div>
-
-              {leaderboardNames.length > 0 && (
-                <div className="bg-black/70 border border-yellow-500/50 px-6 py-4 mt-2 min-w-[250px]">
-                  <div className="text-lg text-yellow-400 font-bold mb-3 text-center">LEADERBOARD</div>
-                  {leaderboardNames.map((e) => {
-                    const isMe = e.pubkey === session?.signer?.publicKey?.toBase58();
-                    return (
-                      <div key={e.pubkey} className={`flex items-center gap-3 py-1 ${isMe ? "text-fuchsia-400" : "text-white"}`}>
-                        <span className="text-yellow-400 text-lg w-8">#{e.rank}</span>
-                        <span className="text-lg">{e.name}</span>
-                        {isMe && <span className="text-xs text-fuchsia-300">(you)</span>}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              <div className="text-white/70 text-sm drop-shadow">{elapsed}s</div>
             </div>
           </div>
         )}

@@ -19,7 +19,10 @@ pub mod spawn_player {
         ctx.accounts.player_state.name[..len].copy_from_slice(&name_bytes[..len]);
         ctx.accounts.player_state.name_len = len as u8;
 
-        // Init player — y=0 (bottom), goes up to 100 (finish)
+        // Set authority to the signer
+        ctx.accounts.player_state.authority = *ctx.accounts.authority.key;
+
+        // Init player — y=0 (bottom), goes up to 200 (finish)
         ctx.accounts.player_state.alive = true;
         ctx.accounts.player_state.finished = false;
         ctx.accounts.player_state.finish_time = 0;
