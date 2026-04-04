@@ -202,17 +202,18 @@ export default function Game({
     const myAuthority = session?.signer?.publicKey?.toBase58() || playerEntityPda?.toBase58() || "";
 
     const processRegistry = async (playerStatePdas: PublicKey[]) => {
-      // Fetch lobby info
+      // Batch fetch all player states in ONE call instead of N sequential calls
       const players: LobbyPlayer[] = [];
       const others: OtherPlayer[] = [];
-      for (const statePda of playerStatePdas) {
-        try {
-          const info = await erConnection.getAccountInfo(statePda);
+      try {
+        const infos = await erConnection.getMultipleAccountsInfo(playerStatePdas);
+        for (let i = 0; i < playerStatePdas.length; i++) {
+          const info = infos[i];
           if (!info) continue;
           const ps = parsePlayerState(info.data as Buffer);
           if (!ps) continue;
+          const statePda = playerStatePdas[i];
           players.push({ name: ps.name || "???", skin: ps.skin || 1, pubkey: ps.authority.toBase58() });
-          // Track others (not me) for in-game rendering
           if (playerEntityPda && statePda.toBase58() !== FindComponentPda({ componentId: PLAYER_STATE_COMPONENT, entity: playerEntityPda }).toBase58()) {
             others.push({
               name: ps.name || "???",
@@ -225,8 +226,8 @@ export default function Game({
               statePda: statePda.toBase58(),
             });
           }
-        } catch { /* skip */ }
-      }
+        }
+      } catch { /* ER might be rate-limited */ }
       setLobbyPlayers(players);
       setOtherPlayers(others);
 

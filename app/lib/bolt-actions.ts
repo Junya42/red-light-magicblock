@@ -69,11 +69,19 @@ type Log = (msg: string) => void;
 
 // ─── Helpers ───
 
-async function prepareTx(tx: Transaction, connection: Connection, payer: PublicKey): Promise<Transaction> {
-  const { blockhash } = await connection.getLatestBlockhash();
-  tx.recentBlockhash = blockhash;
-  tx.feePayer = payer;
-  return tx;
+async function prepareTx(tx: Transaction, connection: Connection, payer: PublicKey, retries = 3): Promise<Transaction> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const { blockhash } = await connection.getLatestBlockhash();
+      tx.recentBlockhash = blockhash;
+      tx.feePayer = payer;
+      return tx;
+    } catch (err) {
+      if (i === retries - 1) throw err;
+      await new Promise(r => setTimeout(r, 1000 * (i + 1))); // 1s, 2s, 3s
+    }
+  }
+  return tx; // unreachable
 }
 
 async function sendSignedTx(tx: Transaction, connection: Connection, log: Log, label: string): Promise<string> {
@@ -86,9 +94,18 @@ async function sendSignedTx(tx: Transaction, connection: Connection, log: Log, l
 
 function sendSessionTx(session: Session) {
   return async (tx: Transaction, conn: Connection): Promise<string> => {
-    const { blockhash } = await conn.getLatestBlockhash();
+    let blockhash: string | undefined;
+    for (let i = 0; i < 3; i++) {
+      try {
+        ({ blockhash } = await conn.getLatestBlockhash());
+        break;
+      } catch (err) {
+        if (i === 2) throw err;
+        await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+      }
+    }
     tx.feePayer = session.signer.publicKey;
-    tx.recentBlockhash = blockhash;
+    tx.recentBlockhash = blockhash!;
     tx.sign(session.signer);
     const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: true });
     const result = await conn.confirmTransaction(sig, "confirmed");

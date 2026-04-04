@@ -5,7 +5,6 @@ import { Connection } from "@solana/web3.js";
 import { GameListing, fetchAllGames } from "../lib/fetch-games";
 
 const TOTAL_SKINS = 5;
-const REFRESH_INTERVAL = 5000; // refresh game list every 5s
 
 interface Props {
   price: number | null;
@@ -22,23 +21,18 @@ export default function MainMenu({ price, connection, erConnection, onCreateGame
   const [games, setGames] = useState<GameListing[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Fetch games on mount + interval
-  useEffect(() => {
+  const refresh = async () => {
     if (!connection) return;
+    setLoading(true);
+    const list = await fetchAllGames(connection, erConnection);
+    setGames(list);
+    setLoading(false);
+  };
 
-    const refresh = async () => {
-      const list = await fetchAllGames(connection, erConnection);
-      setGames(list);
-      setLoading(false);
-    };
-
+  // Fetch games once on mount
+  useEffect(() => {
     refresh();
-    const id = setInterval(refresh, REFRESH_INTERVAL);
-    return () => clearInterval(id);
   }, [connection]);
-
-  // Compute countdown for lobby games
-  const now = Math.floor(Date.now() / 1000);
 
   return (
     <div className="min-h-screen w-screen flex flex-col items-center justify-center relative overflow-y-auto">
@@ -130,8 +124,15 @@ export default function MainMenu({ price, connection, erConnection, onCreateGame
 
         {/* Game list */}
         <div className="w-full">
-          <div className="text-sm text-gray-300 mb-3 text-center">
-            — OR JOIN A GAME —
+          <div className="flex items-center justify-center gap-3 mb-3">
+            <span className="text-sm text-gray-300">— OR JOIN A GAME —</span>
+            <button
+              onClick={refresh}
+              disabled={loading}
+              className="px-2 py-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 border border-gray-600 text-white text-xs transition"
+            >
+              {loading ? "..." : "REFRESH"}
+            </button>
           </div>
 
           {loading && (
