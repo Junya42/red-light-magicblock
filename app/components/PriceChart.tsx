@@ -223,7 +223,7 @@ export default function PriceChart({ price, history, lastOnChainPrice, light }: 
   }, []);
 
   return (
-    <div ref={containerRef} className="relative w-full h-full bg-gray-950 overflow-hidden">
+    <div ref={containerRef} className="relative w-full h-full overflow-hidden" style={{ backgroundColor: "#4a7c3f" }}>
       {/* Header */}
       <div className="absolute top-4 left-5 z-10 flex flex-col gap-1">
         <span className="text-2xl font-bold text-red-500">SOL/USD</span>

@@ -465,7 +465,7 @@ export default function Game({
       <div className="w-full md:w-[40%] h-full relative flex flex-col">
         {/* Game countdown */}
         {gameStatus === "playing" && !isSpectate && (
-          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-50">
+          <div className="absolute top-2 right-2 z-50">
             <div className={`text-3xl md:text-4xl font-bold drop-shadow-lg ${gameCountdown <= 30 ? "text-red-500" : "text-yellow-400"}`} style={{
               textShadow: gameCountdown <= 30
                 ? "0 0 20px rgba(239,68,68,0.5), 0 4px 0 #7f1d1d"
@@ -508,32 +508,6 @@ export default function Game({
             alt="doll"
             fill
             className="object-contain"
-          />
-        </div>
-        {/* Light right */}
-        <div
-          className="absolute z-19"
-          style={{ left: fieldW / 2 + dSize / 2, top: FINISH_LINE_Y - 200 * scale - 10, width: 140 * scale, height: 200 * scale }}
-        >
-          <Image
-            src={light === "red" ? "/red lights.png" : "/green lights.png"}
-            alt="light"
-            fill
-            className="object-contain"
-            style={{ imageRendering: "pixelated" }}
-          />
-        </div>
-        {/* Light left (mirrored) */}
-        <div
-          className="absolute z-19"
-          style={{ left: fieldW / 2 - dSize / 2 - 140 * scale, top: FINISH_LINE_Y - 200 * scale - 10, width: 140 * scale, height: 200 * scale, transform: "scaleX(-1)" }}
-        >
-          <Image
-            src={light === "red" ? "/red lights.png" : "/green lights.png"}
-            alt="light"
-            fill
-            className="object-contain"
-            style={{ imageRendering: "pixelated" }}
           />
         </div>
 
