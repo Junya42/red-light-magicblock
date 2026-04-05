@@ -61,6 +61,7 @@ export default function MainMenu({ price, connection, erConnection, onCreateGame
           <div className="text-lg text-gray-400 mt-1">
             Price drops = Red light = Don&apos;t move
           </div>
+          <span className="mt-1 px-2 py-0.5 bg-yellow-600/30 border border-yellow-600/50 text-yellow-400 text-xs font-mono rounded">DEVNET</span>
         </div>
 
         {/* Skin selector */}
