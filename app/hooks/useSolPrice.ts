@@ -5,8 +5,8 @@ import { Connection, PublicKey } from "@solana/web3.js";
 const ORACLE_PROGRAM = new PublicKey("PriCems5tHihc6UDXDjzjeawomAwBduWMGAi8ZUjppd");
 const SOL_FEED_ID = "6"; // Pyth Lazer SOL/USD
 const PRICE_EXPONENT = 8;
-const ER_WSS = "wss://devnet.magicblock.app";
-const ER_RPC = "https://devnet.magicblock.app";
+const ER_WSS = "wss://devnet-eu.magicblock.app";
+const ER_RPC = "https://devnet-eu.magicblock.app";
 
 function derivePricePda(): PublicKey {
   return PublicKey.findProgramAddressSync(

@@ -28,7 +28,7 @@ import {
   END_GAME_SYSTEM,
 } from "./program-ids";
 
-let ER_VALIDATOR = new PublicKey("FnE6VJT5QNZdedZPnCoLsARgBwoE6DeJNjBs2H1gySXA");
+let ER_VALIDATOR = new PublicKey("MEUGGrYPxKk17hCr7wpT6s8dtNokZj5U2L57vjYMS8e");
 
 export function setErValidator(pubkey: string) {
   ER_VALIDATOR = new PublicKey(pubkey);
@@ -68,24 +68,13 @@ export interface GameState {
 
 type Log = (msg: string) => void;
 
-// ─── Helpers ───
-
-const RETRY_DELAYS = [3000, 6000, 10000, 15000]; // 34s total — enough for ER rate-limit reset
+// ─── Helpers (same as CUBE3D) ───
 
 async function prepareTx(tx: Transaction, connection: Connection, payer: PublicKey): Promise<Transaction> {
-  for (let i = 0; i <= RETRY_DELAYS.length; i++) {
-    try {
-      const { blockhash } = await connection.getLatestBlockhash();
-      tx.recentBlockhash = blockhash;
-      tx.feePayer = payer;
-      return tx;
-    } catch (err) {
-      if (i === RETRY_DELAYS.length) throw err;
-      console.warn(`getLatestBlockhash failed, retrying in ${RETRY_DELAYS[i] / 1000}s...`);
-      await new Promise(r => setTimeout(r, RETRY_DELAYS[i]));
-    }
-  }
-  return tx; // unreachable
+  const { blockhash } = await connection.getLatestBlockhash();
+  tx.recentBlockhash = blockhash;
+  tx.feePayer = payer;
+  return tx;
 }
 
 async function sendSignedTx(tx: Transaction, connection: Connection, log: Log, label: string): Promise<string> {
@@ -98,18 +87,9 @@ async function sendSignedTx(tx: Transaction, connection: Connection, log: Log, l
 
 function sendSessionTx(session: Session) {
   return async (tx: Transaction, conn: Connection): Promise<string> => {
-    let blockhash: string | undefined;
-    for (let i = 0; i < 3; i++) {
-      try {
-        ({ blockhash } = await conn.getLatestBlockhash());
-        break;
-      } catch (err) {
-        if (i === 2) throw err;
-        await new Promise(r => setTimeout(r, 1000 * (i + 1)));
-      }
-    }
+    const { blockhash } = await conn.getLatestBlockhash();
     tx.feePayer = session.signer.publicKey;
-    tx.recentBlockhash = blockhash!;
+    tx.recentBlockhash = blockhash;
     tx.sign(session.signer);
     const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: true });
     const result = await conn.confirmTransaction(sig, "confirmed");

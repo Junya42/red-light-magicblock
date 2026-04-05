@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { FindComponentPda, Session } from "@magicblock-labs/bolt-sdk";
 import { PricePoint } from "../hooks/useSolPrice";
@@ -14,7 +14,7 @@ import Image from "next/image";
 
 const PLAYER_SIZE = 65;
 const DOLL_SIZE = 110;
-const CHECK_PRICE_INTERVAL_MS = 3_000;
+const CHECK_PRICE_INTERVAL_MS = 10_000;
 const MOVE_INTERVAL_MS = 80;
 
 const DEFAULT_PYTH_PDA = new PublicKey("7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE");
@@ -119,15 +119,24 @@ export default function Game({
 }: Props) {
   const isSpectate = !session;
   // In normal mode, derive PDAs from entity. In spectate mode, use direct PDA.
-  const resolvedGameConfigPda = gameConfigPdaProp
-    || (gameEntityPda ? FindComponentPda({ componentId: GAME_CONFIG_COMPONENT, entity: gameEntityPda }) : null);
-  const validGameEntity = gameEntityPda && gameEntityPda.toBase58() !== PublicKey.default.toBase58() ? gameEntityPda : null;
-  const resolvedRegistryPda = validGameEntity
-    ? FindComponentPda({ componentId: PLAYER_REGISTRY_COMPONENT, entity: validGameEntity })
-    : null;
-  const resolvedLeaderboardPda = validGameEntity
-    ? FindComponentPda({ componentId: LEADERBOARD_COMPONENT, entity: validGameEntity })
-    : null;
+  const gameEntityKey = gameEntityPda?.toBase58() || "";
+  const configPropKey = gameConfigPdaProp?.toBase58() || "";
+
+  const resolvedGameConfigPda = useMemo(() =>
+    gameConfigPdaProp || (gameEntityPda ? FindComponentPda({ componentId: GAME_CONFIG_COMPONENT, entity: gameEntityPda }) : null),
+    [configPropKey, gameEntityKey]);
+
+  const validGameEntity = useMemo(() =>
+    gameEntityPda && gameEntityPda.toBase58() !== PublicKey.default.toBase58() ? gameEntityPda : null,
+    [gameEntityKey]);
+
+  const resolvedRegistryPda = useMemo(() =>
+    validGameEntity ? FindComponentPda({ componentId: PLAYER_REGISTRY_COMPONENT, entity: validGameEntity }) : null,
+    [validGameEntity]);
+
+  const resolvedLeaderboardPda = useMemo(() =>
+    validGameEntity ? FindComponentPda({ componentId: LEADERBOARD_COMPONENT, entity: validGameEntity }) : null,
+    [validGameEntity]);
   const fieldRef = useRef<HTMLDivElement>(null);
   const [fieldW, setFieldW] = useState(800);
   const [fieldH, setFieldH] = useState(600);
@@ -157,8 +166,9 @@ export default function Game({
   const [keysDown, setKeysDown] = useState<Set<string>>(new Set());
   const [isMoving, setIsMoving] = useState(false);
   const [lobbyPlayers, setLobbyPlayers] = useState<LobbyPlayer[]>([]);
-  const [lobbyCountdown, setLobbyCountdown] = useState(40);
+  const [lobbyCountdown, setLobbyCountdown] = useState(60);
   const [lobbyEnd, setLobbyEnd] = useState(0);
+  const lobbyReceivedRef = useRef<{ chainTime: number; localTime: number } | null>(null);
   const [startGameSent, setStartGameSent] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [lastPrice, setLastPrice] = useState<number | null>(null);
@@ -179,14 +189,21 @@ export default function Game({
   const pSize = PLAYER_SIZE * scale;
   const dSize = DOLL_SIZE * scale;
 
-  // ─── Subscribe to GameConfig on ER ───
+  // ─── All ER subscriptions — staggered to avoid rate limit ───
   useEffect(() => {
-    if (!erConnection || !resolvedGameConfigPda) return;
-    const pda = resolvedGameConfigPda;
+    if (!erConnection) return;
+    const subs: number[] = [];
+    const timeouts: ReturnType<typeof setTimeout>[] = [];
+    let cancelled = false;
 
     const handleConfig = (data: Buffer) => {
       const cfg = parseGameConfig(data);
       if (!cfg) return;
+      // Calculate chain-to-local time drift on first config receive
+      if (cfg.lobbyEnd > 0 && !lobbyReceivedRef.current) {
+        const chainNow = cfg.lobbyEnd - 60; // startTime = lobbyEnd - 60s
+        lobbyReceivedRef.current = { chainTime: chainNow, localTime: Math.floor(Date.now() / 1000) };
+      }
       setLobbyEnd(cfg.lobbyEnd);
       setLight(cfg.light === 1 ? "red" : "green");
       if (cfg.lastPrice > 0) setLastPrice(cfg.lastPrice / 1e8);
@@ -198,43 +215,17 @@ export default function Game({
       }
     };
 
-    erConnection.getAccountInfo(pda).then(info => {
-      if (info) handleConfig(info.data as Buffer);
-    }).catch(() => {});
-    const subId = erConnection.onAccountChange(pda, (info) => handleConfig(info.data as Buffer));
-    return () => { erConnection.removeAccountChangeListener(subId); };
-  }, [erConnection, resolvedGameConfigPda]);
+    const handleLeaderboard = (data: Buffer) => {
+      const lb = parseLeaderboard(data);
+      if (lb) setLeaderboard(lb.entries);
+    };
 
-  // ─── Subscribe to own PlayerState on ER ───
-  useEffect(() => {
-    if (!erConnection || !playerEntityPda) return;
-    const pda = FindComponentPda({ componentId: PLAYER_STATE_COMPONENT, entity: playerEntityPda });
-
-    const subId = erConnection.onAccountChange(pda, (info) => {
-      const ps = parsePlayerState(info.data as Buffer);
-      if (!ps) return;
-      setOnChainY(ps.y);
-      setPlayerAlive(ps.alive);
-      setPlayerFinished(ps.finished);
-      if (!ps.alive || ps.finished) setGameStatus("ended");
-    });
-    return () => { erConnection.removeAccountChangeListener(subId); };
-  }, [erConnection, playerEntityPda]);
-
-  // ─── Subscribe to PlayerRegistry on ER → discover players + subscribe to their state ───
-  useEffect(() => {
-    if (!erConnection || !resolvedRegistryPda) return;
-    const pda = resolvedRegistryPda;
-    const myAuthority = session?.signer?.publicKey?.toBase58() || playerEntityPda?.toBase58() || "";
-
-    const lastRegistryRef = { pdas: "" };
+    let lastRegistryKey = "";
     const processRegistry = async (playerStatePdas: PublicKey[]) => {
-      // Skip if same PDAs as last time (avoid re-fetching on every registry update)
       const key = playerStatePdas.map(p => p.toBase58()).join(",");
-      if (key === lastRegistryRef.pdas) return;
-      lastRegistryRef.pdas = key;
+      if (key === lastRegistryKey || cancelled) return;
+      lastRegistryKey = key;
 
-      // Batch fetch all player states in ONE call instead of N sequential calls
       const players: LobbyPlayer[] = [];
       const others: OtherPlayer[] = [];
       try {
@@ -249,12 +240,8 @@ export default function Game({
           const myStatePda = playerEntityPda ? FindComponentPda({ componentId: PLAYER_STATE_COMPONENT, entity: playerEntityPda }).toBase58() : null;
           if (!myStatePda || statePda.toBase58() !== myStatePda) {
             others.push({
-              name: ps.name || "???",
-              skin: ps.skin || 1,
-              y: ps.y,
-              prevY: ps.y,
-              alive: ps.alive,
-              finished: ps.finished,
+              name: ps.name || "???", skin: ps.skin || 1,
+              y: ps.y, prevY: ps.y, alive: ps.alive, finished: ps.finished,
               xPos: hashToX(statePda.toBase58(), fieldW),
               statePda: statePda.toBase58(),
             });
@@ -264,13 +251,11 @@ export default function Game({
       setLobbyPlayers(players);
       setOtherPlayers(others);
 
-      // Unsubscribe old subs
-      for (const s of otherSubsRef.current) {
-        erConnection.removeAccountChangeListener(s);
-      }
+      // Unsub old player subs
+      for (const s of otherSubsRef.current) erConnection.removeAccountChangeListener(s);
       otherSubsRef.current = [];
 
-      // Subscribe to each other player's state for live Y updates
+      // Sub to each other player
       const myStatePda = playerEntityPda ? FindComponentPda({ componentId: PLAYER_STATE_COMPONENT, entity: playerEntityPda }).toBase58() : null;
       for (const statePda of playerStatePdas) {
         if (myStatePda && statePda.toBase58() === myStatePda) continue;
@@ -284,48 +269,71 @@ export default function Game({
           ));
         });
         otherSubsRef.current.push(subId);
+        subs.push(subId);
       }
     };
 
-    erConnection.getAccountInfo(pda).then(info => {
-      if (!info) return;
-      const reg = parsePlayerRegistry(info.data as Buffer);
-      if (reg && reg.count > 0) processRegistry(reg.playerStates);
-    }).catch(() => {});
-    const subId = erConnection.onAccountChange(pda, (accountInfo) => {
-      const reg = parsePlayerRegistry(accountInfo.data as Buffer);
-      if (reg && reg.count > 0) processRegistry(reg.playerStates);
-    });
+    // 1. GameConfig — immediate fetch + WS
+    if (resolvedGameConfigPda) {
+      erConnection.getAccountInfo(resolvedGameConfigPda).then(info => {
+        if (info && !cancelled) handleConfig(info.data as Buffer);
+      }).catch(() => {});
+      const s = erConnection.onAccountChange(resolvedGameConfigPda, (info) => handleConfig(info.data as Buffer));
+      subs.push(s);
+    }
+
+    // 2. PlayerState
+    if (playerEntityPda) {
+      const pda = FindComponentPda({ componentId: PLAYER_STATE_COMPONENT, entity: playerEntityPda });
+      const s = erConnection.onAccountChange(pda, (info) => {
+        const ps = parsePlayerState(info.data as Buffer);
+        if (!ps) return;
+        setOnChainY(ps.y);
+        setPlayerAlive(ps.alive);
+        setPlayerFinished(ps.finished);
+        if (!ps.alive || ps.finished) setGameStatus("ended");
+      });
+      subs.push(s);
+    }
+
+    // 3. PlayerRegistry — WS + immediate initial fetch
+    if (resolvedRegistryPda) {
+      erConnection.getAccountInfo(resolvedRegistryPda).then(info => {
+        if (!info || cancelled) return;
+        const reg = parsePlayerRegistry(info.data as Buffer);
+        if (reg && reg.count > 0) processRegistry(reg.playerStates);
+      }).catch(() => {});
+      const s = erConnection.onAccountChange(resolvedRegistryPda, (accountInfo) => {
+        const reg = parsePlayerRegistry(accountInfo.data as Buffer);
+        if (reg && reg.count > 0) processRegistry(reg.playerStates);
+      });
+      subs.push(s);
+    }
+
+    // 4. Leaderboard
+    if (resolvedLeaderboardPda) {
+      const s = erConnection.onAccountChange(resolvedLeaderboardPda, (info) => handleLeaderboard(info.data as Buffer));
+      subs.push(s);
+    }
+
     return () => {
-      erConnection.removeAccountChangeListener(subId);
+      cancelled = true;
+      for (const t of timeouts) clearTimeout(t);
+      for (const s of subs) erConnection.removeAccountChangeListener(s);
       for (const s of otherSubsRef.current) erConnection.removeAccountChangeListener(s);
       otherSubsRef.current = [];
     };
-  }, [erConnection, resolvedRegistryPda, playerEntityPda]);
+  }, [erConnection, resolvedGameConfigPda, playerEntityPda, resolvedRegistryPda, resolvedLeaderboardPda]);
 
-  // ─── Subscribe to Leaderboard on ER ───
-  useEffect(() => {
-    if (!erConnection || !resolvedLeaderboardPda) return;
-    const pda = resolvedLeaderboardPda;
-
-    const handleLeaderboard = (data: Buffer) => {
-      const lb = parseLeaderboard(data);
-      if (lb) setLeaderboard(lb.entries);
-    };
-
-    erConnection.getAccountInfo(pda).then(info => {
-      if (info) handleLeaderboard(info.data as Buffer);
-    }).catch(() => {});
-    const subId = erConnection.onAccountChange(pda, (info) => handleLeaderboard(info.data as Buffer));
-    return () => { erConnection.removeAccountChangeListener(subId); };
-  }, [erConnection, resolvedLeaderboardPda]);
-
-  // ─── Lobby countdown from on-chain lobby_end ───
+  // ─── Lobby countdown (drift-corrected) ───
   useEffect(() => {
     if (gameStatus !== "lobby" || lobbyEnd === 0) return;
+    const drift = lobbyReceivedRef.current
+      ? lobbyReceivedRef.current.chainTime - lobbyReceivedRef.current.localTime
+      : 0;
     const id = setInterval(() => {
-      const now = Math.floor(Date.now() / 1000);
-      setLobbyCountdown(Math.max(0, lobbyEnd - now));
+      const chainNow = Math.floor(Date.now() / 1000) + drift;
+      setLobbyCountdown(Math.max(0, lobbyEnd - chainNow));
     }, 200);
     return () => clearInterval(id);
   }, [gameStatus, lobbyEnd]);
@@ -339,7 +347,7 @@ export default function Game({
     console.log("Lobby over — sending start-game...");
     sendStartGame(erConnection, session, worldPda, gameEntityPda, pythPricePda)
       .then(() => console.log("start-game confirmed!"))
-      .catch((e) => { console.error("start-game failed:", e); setStartGameSent(false); });
+      .catch((e) => { console.error("start-game failed:", e); });
   }, [gameStatus, lobbyCountdown, startGameSent, session, worldPda, gameEntityPda, erConnection, pythPricePda]);
 
   // ─── Game countdown (2min30 = 150s from playing start) ───
