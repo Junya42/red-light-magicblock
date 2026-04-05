@@ -456,9 +456,41 @@ export default function Game({
 
   return (
     <div className="flex w-full h-full flex-1">
-      {/* LEFT — Price chart (hidden on mobile) */}
+      {/* LEFT — Price chart or How it works (hidden on mobile) */}
       <div className="hidden md:block md:w-[60%] h-full">
-        <PriceChart price={price} history={history} lastOnChainPrice={lastPrice} light={light} />
+        {gameStatus === "playing" ? (
+          <PriceChart price={price} history={history} lastOnChainPrice={lastPrice} light={light} />
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center relative" style={{ backgroundImage: "url('/BACKGROUND.png')", backgroundSize: "cover", backgroundPosition: "center" }}>
+            <div className="absolute inset-0 bg-black/50" />
+            <div className="relative z-10 flex flex-col items-center gap-6 max-w-md px-8">
+              <div className="text-4xl font-bold text-yellow-400" style={{ textShadow: "0 0 20px rgba(250,204,21,0.3), 0 4px 0 #b45309" }}>
+                HOW IT WORKS
+              </div>
+              <div className="flex flex-col gap-4 text-lg text-white/90">
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-2xl">1.</span>
+                  <span>The SOL/USD price is checked every <span className="text-yellow-400 font-bold">3 seconds</span> on-chain</span>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-2xl">2.</span>
+                  <span>If the price <span className="text-red-400 font-bold">dropped</span> from where it was 3sec earlier, it&apos;s <span className="text-red-400 font-bold">RED LIGHT</span> for 2 seconds</span>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-2xl">3.</span>
+                  <span>Move during <span className="text-red-400 font-bold">RED LIGHT</span> and you <span className="text-red-400 font-bold">die</span> (respawn after 5s)</span>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-2xl">4.</span>
+                  <span>First to reach the <span className="text-yellow-400 font-bold">finish line</span> wins!</span>
+                </div>
+              </div>
+              <div className="text-sm text-gray-400 mt-4">
+                Watch the chart during the game to predict when the price will drop
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* RIGHT — Game field */}
@@ -691,7 +723,9 @@ export default function Game({
           <div className="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none">
             <div className="absolute inset-0 bg-black/50" />
             <div className="relative z-10 flex flex-col items-center gap-3 pointer-events-auto">
-              <div className="text-5xl font-bold drop-shadow-lg text-green-400">YOU WIN!</div>
+              <div className={`text-5xl font-bold drop-shadow-lg ${playerFinished ? "text-green-400" : "text-red-500"}`}>
+                {playerFinished ? "YOU WIN!" : "GAME OVER"}
+              </div>
               <div className="text-white/70 text-sm drop-shadow">{elapsed}s</div>
             </div>
           </div>

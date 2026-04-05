@@ -86,14 +86,14 @@ export default function PriceChart({ price, history, lastOnChainPrice, light }: 
       const redY = priceToY(lastOnChainPrice);
       if (redY < h) {
         const grad = ctx.createLinearGradient(0, redY, 0, h);
-        grad.addColorStop(0, "rgba(239, 68, 68, 0.15)");
-        grad.addColorStop(1, "rgba(239, 68, 68, 0.35)");
+        grad.addColorStop(0, "rgba(120, 20, 20, 0.3)");
+        grad.addColorStop(1, "rgba(80, 10, 10, 0.6)");
         ctx.fillStyle = grad;
         ctx.fillRect(0, redY, w, h - redY);
 
         // Danger line
         ctx.beginPath();
-        ctx.strokeStyle = "rgba(239, 68, 68, 0.5)";
+        ctx.strokeStyle = "rgba(150, 30, 30, 0.7)";
         ctx.lineWidth = 1;
         ctx.setLineDash([8, 6]);
         ctx.moveTo(0, redY);
@@ -103,7 +103,7 @@ export default function PriceChart({ price, history, lastOnChainPrice, light }: 
 
         // Label
         ctx.font = "bold 11px monospace";
-        ctx.fillStyle = "rgba(239, 68, 68, 0.7)";
+        ctx.fillStyle = "rgba(180, 50, 50, 0.8)";
         ctx.textAlign = "left";
         ctx.fillText("RED ZONE", 8, redY + 14);
       }
@@ -223,7 +223,8 @@ export default function PriceChart({ price, history, lastOnChainPrice, light }: 
   }, []);
 
   return (
-    <div ref={containerRef} className="relative w-full h-full overflow-hidden" style={{ backgroundColor: "#4a7c3f" }}>
+    <div ref={containerRef} className="relative w-full h-full overflow-hidden" style={{ backgroundImage: "url('/BACKGROUND.png')", backgroundSize: "cover", backgroundPosition: "center" }}>
+      <div className="absolute inset-0 bg-black/40" />
       {/* Header */}
       <div className="absolute top-4 left-5 z-10 flex flex-col gap-1">
         <span className="text-2xl font-bold text-red-500">SOL/USD</span>
