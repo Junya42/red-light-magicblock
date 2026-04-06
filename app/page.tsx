@@ -225,11 +225,11 @@ export default function Home() {
 
           {/* Skin selector */}
           <div className="flex items-center gap-6">
-            <button onClick={() => setSkin((s) => s <= 1 ? 5 : s - 1)} className="text-3xl text-white/60 hover:text-white transition">&lt;</button>
+            <button onClick={() => setSkin((s) => s <= 1 ? 6 : s - 1)} className="text-3xl text-white/60 hover:text-white transition">&lt;</button>
             <div className="relative" style={{ width: 80, height: 96 }}>
               <Image src={`/props_${skin}_front.png`} alt={`skin ${skin}`} fill className="object-contain" style={{ imageRendering: "pixelated" }} onError={(e) => { (e.target as HTMLImageElement).src = "/props_1_front.png"; }} />
             </div>
-            <button onClick={() => setSkin((s) => s >= 5 ? 1 : s + 1)} className="text-3xl text-white/60 hover:text-white transition">&gt;</button>
+            <button onClick={() => setSkin((s) => s >= 6 ? 1 : s + 1)} className="text-3xl text-white/60 hover:text-white transition">&gt;</button>
           </div>
 
           <input

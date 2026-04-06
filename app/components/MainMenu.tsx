@@ -4,7 +4,7 @@ import Image from "next/image";
 import { Connection } from "@solana/web3.js";
 import { GameListing, fetchAllGames } from "../lib/fetch-games";
 
-const TOTAL_SKINS = 5;
+const TOTAL_SKINS = 6;
 
 interface Props {
   price: number | null;
