@@ -262,9 +262,9 @@ export default function Game({
             });
           }
         }
-      } catch (err) { console.warn("processRegistry fetch failed:", err); }
+      } catch (err) { console.warn("processRegistry fetch failed:", err); return; }
       setLobbyPlayers(players);
-      setOtherPlayers(others);
+      if (others.length > 0 || players.length > 0) setOtherPlayers(others);
 
       // Unsub old player subs
       for (const s of otherSubsRef.current) erConnection.removeAccountChangeListener(s);
