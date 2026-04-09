@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import Image from "next/image";
 import { Connection } from "@solana/web3.js";
 import { GameListing, fetchAllGames } from "../lib/fetch-games";
+import type { UiPreviewScene } from "./Game";
 
 const TOTAL_SKINS = 6;
 
@@ -12,9 +13,11 @@ interface Props {
   erConnection?: Connection | null;
   onCreateGame: (skin: number, name: string) => void;
   onJoinGame: (gameId: string, skin: number, name: string) => void;
+  /** Open in-game layout with mock data — no wallet or Ephemeral Rollup */
+  onUiPreview?: (skin: number, name: string, scene?: UiPreviewScene) => void;
 }
 
-export default function MainMenu({ price, connection, erConnection, onCreateGame, onJoinGame }: Props) {
+export default function MainMenu({ price, connection, erConnection, onCreateGame, onJoinGame, onUiPreview }: Props) {
   const [playerName, setPlayerName] = useState("");
   const [selectedSkin, setSelectedSkin] = useState(1);
   const [games, setGames] = useState<GameListing[]>([]);
@@ -34,7 +37,7 @@ export default function MainMenu({ price, connection, erConnection, onCreateGame
   }, [connection]);
 
   return (
-    <div className="min-h-screen w-screen flex flex-col items-center justify-center relative overflow-y-auto">
+    <div className="flex-1 h-full xl:rounded-xl relative min-w-0 min-h-0 overflow-hidden flex justify-center items-center border transition-all">
       {/* Background */}
       <div className="fixed inset-0" style={{
         backgroundImage: "url('/LOBBY.jpg')",
@@ -121,6 +124,43 @@ export default function MainMenu({ price, connection, erConnection, onCreateGame
         >
           CREATE GAME
         </button>
+
+        {onUiPreview && (
+          <div className="w-full max-w-xs flex flex-col gap-2 items-center">
+            <button
+              type="button"
+              onClick={() => onUiPreview(selectedSkin, playerName.trim() || "Designer", "playing")}
+              className="w-full py-2.5 bg-gray-800/80 hover:bg-gray-700 border border-gray-600 text-gray-200 text-sm transition"
+            >
+              Preview game UI (no wallet)
+            </button>
+            <div className="flex flex-wrap justify-center gap-2 text-[11px] text-gray-500">
+              <button
+                type="button"
+                className="underline hover:text-gray-300"
+                onClick={() => onUiPreview(selectedSkin, playerName.trim() || "Designer", "lobby")}
+              >
+                Lobby
+              </button>
+              <span aria-hidden>·</span>
+              <button
+                type="button"
+                className="underline hover:text-gray-300"
+                onClick={() => onUiPreview(selectedSkin, playerName.trim() || "Designer", "playing")}
+              >
+                Playing
+              </button>
+              <span aria-hidden>·</span>
+              <button
+                type="button"
+                className="underline hover:text-gray-300"
+                onClick={() => onUiPreview(selectedSkin, playerName.trim() || "Designer", "ended")}
+              >
+                End screen
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Game list */}
         <div className="w-full">

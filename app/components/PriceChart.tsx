@@ -36,6 +36,12 @@ export default function PriceChart({ price, history, lastOnChainPrice, light }: 
     return () => clearInterval(id);
   }, []);
 
+  // Check-price timing — shared by countdown and R→L timer block from current dot (synced with lastOnChainPrice)
+  const lastCheckRef = useRef(Date.now());
+  useEffect(() => {
+    lastCheckRef.current = Date.now();
+  }, [lastOnChainPrice]);
+
   // Visible points
   const visiblePts = useMemo(() => {
     const cutoff = now - HISTORY_WINDOW_MS;
@@ -80,6 +86,52 @@ export default function PriceChart({ price, history, lastOnChainPrice, light }: 
     const timeToX = (t: number) => {
       return ((t - windowStart) / HISTORY_WINDOW_MS) * chartW;
     };
+
+    // Current-dot X (same as the live price dot); fallback = right edge of time axis
+    const dotX = pts.length >= 1
+      ? Math.min(chartW, Math.max(1, timeToX(pts[pts.length - 1].timestamp)))
+      : chartW;
+    const blockW = dotX;
+
+    // Timer block: fixed width [0 → dotX], slides right → left over 3s (right edge dotX → 0).
+    // Remaining px until next cycle at dot ≈ current right edge x (distance to 0).
+    const CHECK_INTERVAL_MS = 3000;
+    const elapsed = Date.now() - lastCheckRef.current;
+    const tNorm = Math.min(1, elapsed / CHECK_INTERVAL_MS);
+    const leftEdge = -tNorm * blockW;
+    const vL = Math.max(0, leftEdge);
+    const vR = Math.min(chartW, leftEdge + blockW);
+
+    ctx.fillStyle = "rgba(148, 163, 184, 0.08)";
+    ctx.fillRect(0, 0, chartW, h);
+
+    if (vR > vL) {
+      ctx.fillStyle = "rgba(148, 163, 184, 0.16)";
+      ctx.fillRect(vL, 0, vR - vL, h);
+
+      ctx.strokeStyle = "rgba(226, 232, 240, 0.55)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(vL + 0.5, 0);
+      ctx.lineTo(vL + 0.5, h);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(vR - 0.5, 0);
+      ctx.lineTo(vR - 0.5, h);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = "rgba(226, 232, 240, 0.28)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(0.5, 0.5, chartW - 1, h - 1);
+
+    // Right edge of chart = “now”; subtle line so the live edge is readable
+    ctx.beginPath();
+    ctx.strokeStyle = "rgba(248, 250, 252, 0.35)";
+    ctx.lineWidth = 1;
+    ctx.moveTo(chartW, 0);
+    ctx.lineTo(chartW, h);
+    ctx.stroke();
 
     // Red zone — below lastOnChainPrice (only show when green — can't go red from red)
     if (lastOnChainPrice && lastOnChainPrice > 0 && light === "green") {
@@ -204,15 +256,10 @@ export default function PriceChart({ price, history, lastOnChainPrice, light }: 
     ctx.fillStyle = lineColor;
     ctx.textAlign = "right";
     ctx.fillText(`$${last.price.toFixed(4)}`, lx - 18, ly - 16);
-  }, [visiblePts, now, range, size, light, lastOnChainPrice]);
+  }, [visiblePts, now, range, size, light, lastOnChainPrice, price]);
 
   // Check-price countdown — synced with actual checkPrice calls
-  const lastCheckRef = useRef(Date.now());
   const [checkCountdown, setCheckCountdown] = useState(3);
-
-  useEffect(() => {
-    lastCheckRef.current = Date.now();
-  }, [lastOnChainPrice]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -239,11 +286,9 @@ export default function PriceChart({ price, history, lastOnChainPrice, light }: 
         }`}>
           {light === "red" ? "RED LIGHT" : "GREEN LIGHT"}
         </div>
-        {light === "green" && (
-          <div className="text-lg font-mono text-gray-400">
-            Checking in <span className="text-yellow-400 font-bold">{checkCountdown}s</span>
-          </div>
-        )}
+        <div className="text-lg font-mono text-gray-400">
+          Checking in <span className="text-yellow-400 font-bold">{checkCountdown}s</span>
+        </div>
       </div>
 
       {/* Canvas */}

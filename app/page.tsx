@@ -7,9 +7,10 @@ import * as anchor from "@coral-xyz/anchor";
 import Image from "next/image";
 import { useSolPrice } from "./hooks/useSolPrice";
 import MainMenu from "./components/MainMenu";
-import Game from "./components/Game";
+import Game, { type UiPreviewScene } from "./components/Game";
 import { createAndJoinGame, joinExistingGame, resolveGameEntity, GameState } from "./lib/bolt-actions";
 import { Session } from "@magicblock-labs/bolt-sdk";
+import PriceChart from "./components/PriceChart";
 
 const ER_RPC = process.env.NEXT_PUBLIC_ER_RPC || "http://localhost:7799";
 
@@ -67,11 +68,26 @@ export default function Home() {
   const [screen, setScreen] = useState<"menu" | "game">("menu");
   const [skin, setSkin] = useState(1);
   const [playerName, setPlayerName] = useState("");
-  const [pendingJoin, setPendingJoin] = useState<{gameConfigPda: string; worldPda: string; gameEntityPda: string} | null>(null);
+  const [uiPreview, setUiPreview] = useState(false);
+  const [uiPreviewScene, setUiPreviewScene] = useState<UiPreviewScene>("playing");
+  const [pendingJoin, setPendingJoin] = useState<{ gameConfigPda: string; worldPda: string; gameEntityPda: string } | null>(null);
 
-  // Read ?join=&world=&entity= params from URL
+  // Read ?join=&world=&entity= and ?uiPreview= from URL
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    const uiPrev = params.get("uiPreview");
+    if (uiPrev === "1" || uiPrev === "true") {
+      const scene = params.get("uiPreviewScene");
+      const valid: UiPreviewScene[] = ["lobby", "playing", "ended"];
+      setUiPreviewScene(scene && valid.includes(scene as UiPreviewScene) ? (scene as UiPreviewScene) : "playing");
+      setUiPreview(true);
+      const skinN = Number(params.get("skin"));
+      setSkin(Number.isFinite(skinN) && skinN >= 1 && skinN <= 6 ? skinN : 1);
+      const n = params.get("name");
+      setPlayerName(n ? n.slice(0, 16) : "Preview");
+      setScreen("game");
+      return;
+    }
     const join = params.get("join");
     const world = params.get("world");
     const entity = params.get("entity");
@@ -99,6 +115,16 @@ export default function Home() {
   const addLog = useCallback((msg: string) => {
     console.log(msg);
     setLog((prev) => [...prev.slice(-20), msg]);
+  }, []);
+
+  const handleUiPreview = useCallback((selectedSkin: number, name: string, scene: UiPreviewScene = "playing") => {
+    setSkin(selectedSkin);
+    setPlayerName(name || "Designer");
+    setUiPreviewScene(scene);
+    setUiPreview(true);
+    setGameState(null);
+    setSession(null);
+    setScreen("game");
   }, []);
 
   const handleCreateGame = useCallback(async (selectedSkin: number, name: string) => {
@@ -272,14 +298,20 @@ export default function Home() {
 
   if (screen === "menu") {
     return (
-      <div className="relative">
-        <MainMenu
-          price={price}
-          connection={connection}
-          erConnection={erConnection}
-          onCreateGame={handleCreateGame}
-          onJoinGame={handleJoinGame}
-        />
+      <div
+        className={`fixed bg-black/70 z-[1000] top-0 left-0 xl:px-4 w-screen h-[100dvh] flex justify-center items-center overflow-y-auto`}
+      >
+        <div className="w-full h-screen xl:h-[91dvh] flex justify-center items-center xl:mb-2 4xl:mb-[1.25rem] gap-2 relative xl:mt-[0.5rem] 4xl:mt-[1rem]">
+
+          <MainMenu
+            price={price}
+            connection={connection}
+            erConnection={erConnection}
+            onCreateGame={handleCreateGame}
+            onJoinGame={handleJoinGame}
+            onUiPreview={handleUiPreview}
+          />
+        </div>
         {/* Wallet button */}
         <div className="absolute top-3 right-3 z-50">
           {publicKey ? (
@@ -314,8 +346,8 @@ export default function Home() {
                     key={i}
                     className={
                       isPhaseHeader ? "text-yellow-400 text-sm mt-2" :
-                      isError ? "text-red-400 text-sm" :
-                      "text-gray-400 text-xs"
+                        isError ? "text-red-400 text-sm" :
+                          "text-gray-400 text-xs"
                     }
                   >
                     {l}
@@ -330,20 +362,31 @@ export default function Home() {
   }
 
   return (
-    <div className="h-screen w-screen bg-black text-white flex flex-col overflow-hidden">
-      <Game
-        price={price}
-        history={history}
-        skin={skin}
-        playerName={playerName}
-        onBack={() => { setScreen("menu"); setGameState(null); setSession(null); }}
-        session={session}
-        worldPda={gameState?.worldPda}
-        gameEntityPda={gameState?.gameEntityPda}
-        playerEntityPda={gameState?.playerEntityPda}
-        erConnection={erConnection}
-        gameConfigPda={gameState?.gameConfigPda}
-      />
+    <div
+      className={`fixed bg-black/70 z-[1000] top-0 left-0 xl:px-4 w-screen h-[100dvh] flex justify-center items-center overflow-y-auto`}
+    >
+      <div className="w-full h-screen xl:h-[91dvh] flex justify-center items-center xl:mb-2 4xl:mb-[1.25rem] gap-2 relative xl:mt-[0.5rem] 4xl:mt-[1rem]">
+        <Game
+          price={price}
+          history={history}
+          skin={skin}
+          playerName={playerName}
+          onBack={() => {
+            setScreen("menu");
+            setGameState(null);
+            setSession(null);
+            setUiPreview(false);
+          }}
+          session={session}
+          worldPda={gameState?.worldPda}
+          gameEntityPda={gameState?.gameEntityPda}
+          playerEntityPda={gameState?.playerEntityPda}
+          erConnection={erConnection}
+          gameConfigPda={gameState?.gameConfigPda}
+          uiPreview={uiPreview}
+          uiPreviewScene={uiPreviewScene}
+        />
+      </div>
     </div>
   );
 }

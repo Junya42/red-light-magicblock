@@ -12,6 +12,7 @@ import {
 } from "../lib/program-ids";
 import Image from "next/image";
 import PriceChart from "./PriceChart";
+import FinishLine from "./FinishLine";
 
 const PLAYER_SIZE = 65;
 const DOLL_SIZE = 110;
@@ -38,13 +39,19 @@ interface OtherPlayer {
   lastMoveTime: number;
 }
 
-// Deterministic "random" X from pubkey string
-function hashToX(pubkey: string, fieldW: number): number {
+// Deterministic "random" X inside a horizontal lane.
+function hashToX(pubkey: string, laneLeft: number, laneWidth: number, spriteWidth: number): number {
   let h = 0;
   for (let i = 0; i < pubkey.length; i++) h = ((h << 5) - h + pubkey.charCodeAt(i)) | 0;
-  const margin = PLAYER_SIZE;
-  return margin + Math.abs(h % (fieldW - margin * 2));
+  const minX = laneLeft + spriteWidth / 2;
+  const maxX = laneLeft + laneWidth - spriteWidth / 2;
+  const range = maxX - minX;
+  if (range <= 0) return laneLeft + laneWidth / 2;
+  const normalized = (Math.abs(h) % 10_000) / 10_000;
+  return minX + normalized * range;
 }
+
+export type UiPreviewScene = "lobby" | "playing" | "ended";
 
 interface Props {
   price: number | null;
@@ -59,6 +66,9 @@ interface Props {
   erConnection?: Connection | null;
   pythPricePda?: PublicKey;
   gameConfigPda?: PublicKey | null; // direct PDA for spectate mode
+  /** Local-only mode: no RPC, subscriptions, or txs — for layout and art iteration */
+  uiPreview?: boolean;
+  uiPreviewScene?: UiPreviewScene;
 }
 
 // ─── Parse on-chain data ───
@@ -120,8 +130,10 @@ export default function Game({
   price, history, skin = 1, playerName = "Player", onBack,
   session, worldPda, gameEntityPda, playerEntityPda, erConnection,
   pythPricePda = DEFAULT_PYTH_PDA, gameConfigPda: gameConfigPdaProp,
+  uiPreview = false,
+  uiPreviewScene = "playing",
 }: Props) {
-  const isSpectate = !session;
+  const isSpectate = !session && !uiPreview;
   // In normal mode, derive PDAs from entity. In spectate mode, use direct PDA.
   const gameEntityKey = gameEntityPda?.toBase58() || "";
   const configPropKey = gameConfigPdaProp?.toBase58() || "";
@@ -142,15 +154,21 @@ export default function Game({
     validGameEntity ? FindComponentPda({ componentId: LEADERBOARD_COMPONENT, entity: validGameEntity }) : null,
     [validGameEntity]);
   const fieldRef = useRef<HTMLDivElement>(null);
+  const [screenW, setScreenW] = useState(800);
   const [fieldW, setFieldW] = useState(800);
   const [fieldH, setFieldH] = useState(600);
 
   useEffect(() => {
     const measure = () => {
-      if (fieldRef.current) {
-        setFieldW(fieldRef.current.clientWidth);
-        setFieldH(fieldRef.current.clientHeight);
+      const viewportW = fieldRef.current?.clientWidth || window.innerWidth;
+      const viewportH = fieldRef.current?.clientHeight || window.innerHeight;
+      setScreenW(viewportW);
+      if (viewportW <= 1040) {
+        setFieldW(viewportW);
+      } else {
+        setFieldW(viewportW * 0.36);
       }
+      setFieldH(viewportH);
     };
     measure();
     window.addEventListener("resize", measure);
@@ -197,12 +215,16 @@ export default function Game({
 
   // Map on-chain Y (0=start at 7/9, 200=finish at 0/9) to screen Y
   const screenY = START_LINE_Y - (onChainY / 200) * (START_LINE_Y - FINISH_LINE_Y);
-  const playerX = fieldW / 2;
   const pSize = PLAYER_SIZE * scale;
   const dSize = DOLL_SIZE * scale;
+  const finishLaneWidth = fieldW;
+  const finishLaneLeft = (screenW - finishLaneWidth) / 2;
+  const playerXSeed = playerEntityPda?.toBase58() || playerName;
+  const playerX = hashToX(playerXSeed, finishLaneLeft, finishLaneWidth, pSize);
 
   // ─── All ER subscriptions — staggered to avoid rate limit ───
   useEffect(() => {
+    if (uiPreview) return;
     if (!erConnection) return;
     const subs: number[] = [];
     const timeouts: ReturnType<typeof setTimeout>[] = [];
@@ -256,7 +278,7 @@ export default function Game({
             others.push({
               name: ps.name || "???", skin: ps.skin || 1,
               y: ps.y, prevY: ps.y, alive: ps.alive, finished: ps.finished,
-              xPos: hashToX(statePda.toBase58(), fieldW),
+              xPos: hashToX(statePda.toBase58(), finishLaneLeft, finishLaneWidth, pSize),
               statePda: statePda.toBase58(),
               lastMoveTime: 0,
             });
@@ -291,7 +313,7 @@ export default function Game({
     if (resolvedGameConfigPda) {
       erConnection.getAccountInfo(resolvedGameConfigPda).then(info => {
         if (info && !cancelled) handleConfig(info.data as Buffer);
-      }).catch(() => {});
+      }).catch(() => { });
       const s = erConnection.onAccountChange(resolvedGameConfigPda, (info) => handleConfig(info.data as Buffer));
       subs.push(s);
     }
@@ -316,7 +338,7 @@ export default function Game({
         if (!info || cancelled) return;
         const reg = parsePlayerRegistry(info.data as Buffer);
         if (reg && reg.count > 0) processRegistry(reg.playerStates);
-      }).catch(() => {});
+      }).catch(() => { });
       const s = erConnection.onAccountChange(resolvedRegistryPda, (accountInfo) => {
         const reg = parsePlayerRegistry(accountInfo.data as Buffer);
         if (reg && reg.count > 0) processRegistry(reg.playerStates);
@@ -337,17 +359,136 @@ export default function Game({
       for (const s of otherSubsRef.current) erConnection.removeAccountChangeListener(s);
       otherSubsRef.current = [];
     };
-  }, [erConnection, resolvedGameConfigPda, playerEntityPda, resolvedRegistryPda, resolvedLeaderboardPda]);
+  }, [uiPreview, erConnection, resolvedGameConfigPda, playerEntityPda, resolvedRegistryPda, resolvedLeaderboardPda, finishLaneLeft, finishLaneWidth, pSize]);
+
+  // ─── UI preview: mock state (no chain) ───
+  useEffect(() => {
+    if (!uiPreview) return;
+    gameStartRef.current = Date.now();
+    chainDriftRef.current = null;
+    setStartGameSent(false);
+    setEndGameSent(false);
+    setShareCopied(false);
+
+    const mockLobby: LobbyPlayer[] = [
+      { name: "SkyRunner", skin: 2, pubkey: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263" },
+      { name: "MoonCat", skin: 3, pubkey: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" },
+      { name: "BlockBoy", skin: 4, pubkey: "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL" },
+    ];
+
+    if (uiPreviewScene === "lobby") {
+      setGameStatus("lobby");
+      setLobbyPlayers(mockLobby);
+      setLobbyEnd(Math.floor(Date.now() / 1000) + 45);
+      setLobbyCountdown(45);
+      setLight("green");
+      setOtherPlayers([]);
+      setLeaderboard([]);
+      setOnChainY(0);
+      setPlayerAlive(true);
+      setPlayerFinished(false);
+      setLastPrice(175.5);
+      return;
+    }
+
+    if (uiPreviewScene === "ended") {
+      setGameStatus("ended");
+      setLobbyPlayers(mockLobby);
+      setLeaderboard([mockLobby[1].pubkey, mockLobby[0].pubkey]);
+      setLight("green");
+      setOtherPlayers([]);
+      setOnChainY(190);
+      setPlayerAlive(true);
+      setPlayerFinished(false);
+      setLastPrice(175.42);
+      return;
+    }
+
+    // playing (default)
+    setGameStatus("playing");
+    setLobbyPlayers(mockLobby);
+    setLeaderboard([]);
+    setLight("green");
+    setOnChainY(72);
+    setPlayerAlive(true);
+    setPlayerFinished(false);
+    setLastPrice(175.38);
+    const previewLaneWidth = fieldW;
+    const previewLaneLeft = (screenW - previewLaneWidth) / 2;
+    setOtherPlayers([
+      {
+        name: mockLobby[0].name,
+        skin: mockLobby[0].skin,
+        y: 130,
+        prevY: 130,
+        alive: true,
+        finished: false,
+        xPos: hashToX("preview-op-a", previewLaneLeft, previewLaneWidth, pSize),
+        statePda: "ui-preview-op-a",
+        lastMoveTime: Date.now(),
+      },
+      {
+        name: mockLobby[1].name,
+        skin: mockLobby[1].skin,
+        y: 95,
+        prevY: 95,
+        alive: true,
+        finished: false,
+        xPos: hashToX("preview-op-b", previewLaneLeft, previewLaneWidth, pSize),
+        statePda: "ui-preview-op-b",
+        lastMoveTime: Date.now() - 500,
+      },
+      {
+        name: mockLobby[2].name,
+        skin: mockLobby[2].skin,
+        y: 40,
+        prevY: 40,
+        alive: false,
+        finished: false,
+        xPos: hashToX("preview-op-c", previewLaneLeft, previewLaneWidth, pSize),
+        statePda: "ui-preview-op-c",
+        lastMoveTime: 0,
+      },
+    ]);
+  }, [uiPreview, uiPreviewScene, fieldW, screenW, pSize]);
+
+  // UI preview: cycle red/green so doll + chart states are visible
+  useEffect(() => {
+    if (!uiPreview || uiPreviewScene !== "playing") return;
+    const id = setInterval(() => {
+      setLight((L) => (L === "green" ? "red" : "green"));
+    }, 4500);
+    return () => clearInterval(id);
+  }, [uiPreview, uiPreviewScene]);
+
+  // UI preview: reflect held keys for sprite hop (no session in preview)
+  useEffect(() => {
+    if (!uiPreview || gameStatus !== "playing") return;
+    const hasUp = keysDown.has("ArrowUp") || keysDown.has("w") || keysDown.has("z");
+    setIsMoving(hasUp && playerAlive && !playerFinished);
+  }, [uiPreview, gameStatus, keysDown, playerAlive, playerFinished]);
+
+  // UI preview: local movement (no chain)
+  useEffect(() => {
+    if (!uiPreview || gameStatus !== "playing" || !playerAlive || playerFinished) return;
+    const hasUp = keysDown.has("ArrowUp") || keysDown.has("w") || keysDown.has("z");
+    if (!hasUp) return;
+    const step = () => setOnChainY((y) => Math.min(200, y + 4));
+    step();
+    const id = setInterval(step, MOVE_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [uiPreview, gameStatus, keysDown, playerAlive, playerFinished]);
 
   // ─── Sound effects on light change ───
   useEffect(() => {
+    if (uiPreview) return;
     if (gameStatus !== "playing") return;
     if (light === "red") {
-      redSoundRef.current?.play().catch(() => {});
+      redSoundRef.current?.play().catch(() => { });
     } else {
-      greenSoundRef.current?.play().catch(() => {});
+      greenSoundRef.current?.play().catch(() => { });
     }
-  }, [light, gameStatus]);
+  }, [uiPreview, light, gameStatus]);
 
   // ─── Lobby countdown ───
   useEffect(() => {
@@ -460,7 +601,7 @@ export default function Game({
     const id = setInterval(() => {
       sendMovePlayer(erConnection, session, worldPda, playerEntityPda, gameEntityPda)
         .then(() => console.log("respawn tick sent"))
-        .catch(() => {});
+        .catch(() => { });
     }, 2000);
     return () => clearInterval(id);
   }, [gameStatus, playerAlive, playerFinished, session, worldPda, gameEntityPda, playerEntityPda, erConnection]);
@@ -474,8 +615,14 @@ export default function Game({
   });
 
   return (
-    <div className="flex w-full h-full flex-1">
+    <div className="flex-1 h-full xl:rounded-xl relative min-w-0 min-h-0 overflow-hidden flex justify-center items-center border transition-all">
+      {uiPreview && (
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 z-[100] px-3 py-1 bg-amber-900/90 border border-amber-600 text-amber-100 text-xs font-mono pointer-events-none">
+          UI PREVIEW — no chain
+        </div>
+      )}
       {/* LEFT — Price chart or How it works (hidden on mobile) */}
+      {/*}
       <div className="hidden md:block md:w-[60%] h-full">
         {gameStatus === "playing" ? (
           <PriceChart price={price} history={history} lastOnChainPrice={lastPrice} light={light} />
@@ -511,9 +658,9 @@ export default function Game({
           </div>
         )}
       </div>
-
+      */}
       {/* RIGHT — Game field */}
-      <div className="w-full md:w-[40%] h-full relative flex flex-col">
+      <div className="w-full h-full relative flex flex-col">
         {/* Game countdown */}
         {gameStatus === "playing" && !isSpectate && (
           <div className="absolute top-2 right-2 z-50">
@@ -538,225 +685,231 @@ export default function Game({
 
         {/* Game field */}
         <div ref={fieldRef} className="relative overflow-hidden flex-1 w-full">
-        <Image src="/BACKGROUND.png" alt="field" fill className="object-fill" priority />
+          <Image src="/bg.png" alt="field" fill className="object-cover sm:object-fill" priority />
+          {light === "red" && (
+            <div className="absolute inset-0 z-[1] bg-red-800/70 pointer-events-none" />
+          )}
 
-        {/* Finish line (2/9) — checkerboard pattern */}
-        <div className="absolute left-0 w-full z-10" style={{
-          top: FINISH_LINE_Y - 12,
-          height: 24,
-          backgroundImage: `repeating-conic-gradient(#000 0% 25%, #fff 0% 50%)`,
-          backgroundSize: "24px 24px",
-        }} />
+          {/* Finish line (2/9) — checkerboard pattern */}
+          {/* <div className="absolute left-1/2 w-[36%] -translate-x-1/2 z-10 opacity-50" style={{
+            top: FINISH_LINE_Y - 14,
+            height: 20,
+            backgroundImage: `repeating-conic-gradient(#000 0% 25%, #fff 0% 50%)`,
+            backgroundSize: "20px 20px",
+          }} /> */}
+          <FinishLine lastOnChainPrice={lastPrice} fieldH={fieldH} fieldW={fieldW} />
 
 
-        {/* Doll + lights — above finish line (0/9) */}
-        <div
-          className="absolute z-20 transition-transform duration-300"
-          style={{ left: fieldW / 2 - dSize / 2, top: FINISH_LINE_Y - dSize * 1.5 - 10, width: dSize, height: dSize * 1.5 }}
-        >
-          <Image
-            src={light === "red" ? "/girls front.png" : "/girls back.png"}
-            alt="doll"
-            fill
-            className="object-contain"
-          />
-        </div>
+          {/* Doll + lights — above finish line (0/9) */}
+          <div
+            className="absolute z-20 transition-transform duration-300"
+            style={{ left: screenW / 2 - dSize / 2, top: FINISH_LINE_Y - dSize * 1.5 - 10, width: dSize, height: dSize * 1.5 }}
+          >
+            <Image
+              src={light === "red" ? "/girls front.png" : "/girls back.png"}
+              alt="doll"
+              fill
+              className="object-contain"
+            />
+          </div>
 
-        {/* Other players */}
-        {gameStatus === "playing" && otherPlayers.map((op) => {
-          const opScreenY = START_LINE_Y - (op.y / 200) * (START_LINE_Y - FINISH_LINE_Y);
-          const opMoving = Date.now() - op.lastMoveTime < 300;
-          const opSprite = !op.alive ? `/props_${op.skin}_dead.png` : opMoving ? `/props_${op.skin}_back.png` : `/props_${op.skin}_front.png`;
-          const opHop = (opMoving && op.alive) ? (Math.floor(Date.now() / 200) % 2 === 0 ? -4 : 0) : 0;
-          return (
-            <div key={op.statePda} className="absolute z-25" style={{ left: op.xPos - pSize / 2, top: opScreenY - pSize + opHop, width: pSize, height: pSize * 1.2 }}>
-              <Image src={opSprite} alt={op.name} fill className="object-contain" style={{ opacity: 0.85 }} />
-              <div className="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-lg text-white font-bold" style={{ textShadow: "0 1px 4px rgba(0,0,0,0.9)" }}>
-                {op.name}
+          {/* Other players */}
+          {gameStatus === "playing" && otherPlayers.map((op) => {
+            const opScreenY = START_LINE_Y - (op.y / 200) * (START_LINE_Y - FINISH_LINE_Y);
+            const opMoving = Date.now() - op.lastMoveTime < 300;
+            const opSprite = !op.alive ? `/props_${op.skin}_dead.png` : opMoving ? `/props_${op.skin}_back.png` : `/props_${op.skin}_front.png`;
+            const opHop = (opMoving && op.alive) ? (Math.floor(Date.now() / 200) % 2 === 0 ? -4 : 0) : 0;
+            return (
+              <div key={op.statePda} className="absolute z-25" style={{ left: op.xPos - pSize / 2, top: opScreenY - pSize + opHop, width: pSize, height: pSize * 1.2 }}>
+                <Image src={opSprite} alt={op.name} fill className="object-contain" style={{ opacity: 0.85 }} />
+                <div className="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-lg text-white font-bold" style={{ textShadow: "0 1px 4px rgba(0,0,0,0.9)" }}>
+                  {op.name}
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
 
-        {/* My player sprite (hidden in spectate) */}
-        {!isSpectate && (() =>{
-          let sprite = `/props_${skin}_front.png`;
-          if (!playerAlive) sprite = `/props_${skin}_dead.png`;
-          else if (playerFinished) sprite = `/props_${skin}_front.png`;
-          else if (isMoving) sprite = `/props_${skin}_back.png`;
+          {/* My player sprite (hidden in spectate) */}
+          {!isSpectate && (() => {
+            let sprite = `/props_${skin}_front.png`;
+            if (!playerAlive) sprite = `/props_${skin}_dead.png`;
+            else if (playerFinished) sprite = `/props_${skin}_front.png`;
+            else if (isMoving) sprite = `/props_${skin}_back.png`;
 
-          const hopOffset = (isMoving && playerAlive && !playerFinished) ? (Math.floor(Date.now() / 200) % 2 === 0 ? -4 : 0) : 0;
+            const hopOffset = (isMoving && playerAlive && !playerFinished) ? (Math.floor(Date.now() / 200) % 2 === 0 ? -4 : 0) : 0;
 
-          return (
-            <div
-              className="absolute z-30"
-              style={{ left: playerX - pSize / 2, top: screenY - pSize + hopOffset, width: pSize, height: pSize * 1.2 }}
-            >
-              <Image src={sprite} alt="player" fill className="object-contain" />
-              {/* My name in pink/violet */}
-              <div className="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-lg font-bold" style={{ color: "#e879f9", textShadow: "0 1px 4px rgba(0,0,0,0.9)" }}>
-                {playerName}
-              </div>
+            return (
               <div
-                className="absolute rounded-full"
-                style={{ bottom: 8, left: '15%', width: '70%', height: 8, background: 'radial-gradient(ellipse, rgba(0,0,0,0.35) 0%, transparent 70%)' }}
-              />
-            </div>
-          );
-        })()}
-
-        {/* Lobby overlay */}
-        {gameStatus === "lobby" && (
-          <div className="absolute inset-0 z-40 flex flex-col items-center justify-center">
-            <div className="absolute inset-0 bg-black/50" />
-            <div className="relative z-10 flex flex-col items-center gap-6">
-              <div className="text-4xl text-white drop-shadow-lg">
-                LOBBY
-              </div>
-
-              <div className="flex flex-col items-center">
-                <div className="text-8xl text-yellow-400 drop-shadow-lg" style={{
-                  textShadow: "0 0 20px rgba(250, 204, 21, 0.5), 0 4px 0 #b45309"
-                }}>
-                  {lobbyCountdown}
-                </div>
-                <div className="text-lg text-white/60 mt-2">
-                  {lobbyCountdown > 0 ? "GAME STARTS IN" : "STARTING..."}
-                </div>
-              </div>
-
-              {/* Player list — real players from chain */}
-              <div className="flex flex-col items-center gap-3 mt-4 relative" style={{ backgroundImage: "url('/lobby_player.png')", backgroundSize: "100% 100%", backgroundRepeat: "no-repeat", padding: "40px 50px", minWidth: 380, minHeight: 200 }}>
-                <div className="text-xl text-white font-bold" style={{ textShadow: "0 2px 4px rgba(0,0,0,0.5)" }}>
-                  PLAYERS ({lobbyPlayers.length}/10)
-                </div>
-                <div className="flex flex-wrap gap-6 justify-center">
-                  {lobbyPlayers.map((p, i) => (
-                    <div key={i} className="flex flex-col items-center gap-2">
-                      <div className="relative" style={{ width: 70, height: 84 }}>
-                        <Image
-                          src={`/props_${p.skin}_front.png`}
-                          alt={p.name}
-                          fill
-                          className="object-contain"
-                          style={{ imageRendering: "pixelated" }}
-                        />
-                      </div>
-                      <span className="text-base text-white font-bold" style={{ textShadow: "0 1px 3px rgba(0,0,0,0.7)" }}>
-                        {p.name}
-                      </span>
-                    </div>
-                  ))}
-                  {lobbyPlayers.length === 0 && (
-                    <div className="text-sm text-gray-500">Waiting for players...</div>
-                  )}
-                </div>
-              </div>
-
-              {/* Share button */}
-              <button
-                onClick={() => {
-                  const url = `${window.location.origin}?join=${resolvedGameConfigPda?.toBase58()}&world=${worldPda?.toBase58()}&entity=${gameEntityPda?.toBase58()}`;
-                  navigator.clipboard.writeText(url);
-                  setShareCopied(true);
-                  setTimeout(() => setShareCopied(false), 2000);
-                }}
-                className="px-6 py-3 bg-cyan-700 hover:bg-cyan-600 border-2 border-cyan-900 text-white text-lg transition"
+                className="absolute z-30"
+                style={{ left: playerX - pSize / 2, top: screenY - pSize + hopOffset, width: pSize, height: pSize * 1.2 }}
               >
-                {shareCopied ? "LINK COPIED!" : "SHARE GAME"}
-              </button>
-
-              <div className="text-base md:text-xl text-yellow-300 font-bold mt-3" style={{ textShadow: "0 2px 8px rgba(0,0,0,0.9), 0 0 20px rgba(250,204,21,0.3)" }}>
-                {fieldW < 600 ? "Push the button to move — DON'T MOVE during RED LIGHT" : "Press W / Z / Arrow Up to move — DON\u0027T MOVE during RED LIGHT"}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Controls hint during playing — hidden on mobile */}
-        {gameStatus === "playing" && fieldW >= 600 && (
-          <div className="absolute bottom-4 left-0 w-full text-center z-30">
-            <span className="text-lg text-yellow-300 font-bold" style={{ textShadow: "0 2px 8px rgba(0,0,0,0.9), 0 0 20px rgba(250,204,21,0.3)" }}>
-              Press W / Z / Arrow Up — DON&apos;T MOVE during RED LIGHT
-            </span>
-          </div>
-        )}
-
-        {/* Mobile move button */}
-        {gameStatus === "playing" && fieldW < 600 && (
-          <div className="absolute z-50 flex flex-col items-center" style={{ bottom: 20, right: 20 }}>
-            <span className="text-sm text-yellow-300 font-bold mb-2" style={{ textShadow: "0 2px 6px rgba(0,0,0,0.9)" }}>PUSH TO MOVE</span>
-            <div
-              className="relative select-none"
-              style={{ width: 160, height: 95, touchAction: "none" }}
-              onTouchStart={(e) => { e.preventDefault(); setKeysDown(prev => new Set(prev).add("w")); }}
-              onTouchEnd={(e) => { e.preventDefault(); setKeysDown(prev => { const n = new Set(prev); n.delete("w"); return n; }); }}
-              onMouseDown={() => setKeysDown(prev => new Set(prev).add("w"))}
-              onMouseUp={() => setKeysDown(prev => { const n = new Set(prev); n.delete("w"); return n; })}
-            >
-              <Image
-                src={keysDown.has("w") ? "/BOUTON_PRESSED.png" : "/BOUTON.png"}
-                alt="move"
-                fill
-                className="object-contain"
-                style={{ imageRendering: "pixelated" }}
-                draggable={false}
-              />
-            </div>
-          </div>
-        )}
-
-
-        {/* Leaderboard — top left, visible when there are finishers */}
-        {(gameStatus === "playing" || gameStatus === "ended") && leaderboardNames.length > 0 && (
-          <div className="absolute top-1 left-1 md:top-3 md:left-3 z-40 md:bg-black/60 md:border md:border-gray-700 px-4 py-3 md:px-3 md:py-2">
-            <div className="text-base md:text-xs text-yellow-400 font-bold mb-2 md:mb-1">LEADERBOARD</div>
-            {leaderboardNames.map((e) => {
-              const isMe = e.name === playerName;
-              return (
-                <div key={e.pubkey} className="flex items-center gap-3 md:gap-2 py-2 md:py-1">
-                  <span className="text-yellow-400 text-lg md:text-sm w-8 md:w-6">#{e.rank}</span>
-                  <div className="relative" style={{ width: fieldW < 600 ? 40 : 28, height: fieldW < 600 ? 48 : 34 }}>
-                    <Image src={`/props_${e.skin}_front.png`} alt={e.name} fill className="object-contain" style={{ imageRendering: "pixelated" }} />
-                  </div>
-                  <span className={`text-lg md:text-sm font-bold ${isMe ? "text-fuchsia-400" : "text-white"}`} style={{ textShadow: "0 1px 3px rgba(0,0,0,0.9)" }}>{e.name}</span>
+                <Image src={sprite} alt="player" fill className="object-contain" />
+                {/* My name in pink/violet */}
+                <div className="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-lg font-bold" style={{ color: "#e879f9", textShadow: "0 1px 4px rgba(0,0,0,0.9)" }}>
+                  {playerName}
                 </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Death overlay — respawning */}
-        {gameStatus === "playing" && !playerAlive && !playerFinished && (
-          <div className="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none">
-            <div className="absolute inset-0 bg-black/40" />
-            <div className="relative z-10 flex flex-col items-center gap-2">
-              <div className="text-4xl md:text-5xl font-bold text-red-500 drop-shadow-lg">YOU DIED</div>
-              <div className="text-lg md:text-xl text-white/80 font-bold">Respawning in 5s...</div>
-            </div>
-          </div>
-        )}
-
-        {/* Game over overlay — finished */}
-        {gameStatus === "ended" && (
-          <div className="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none">
-            <div className="absolute inset-0 bg-black/50" />
-            <div className="relative z-10 flex flex-col items-center gap-3 pointer-events-auto">
-              <div className={`text-5xl font-bold drop-shadow-lg ${playerFinished ? "text-green-400" : "text-red-500"}`}>
-                {playerFinished ? "YOU WIN!" : "GAME OVER"}
+                <div
+                  className="absolute rounded-full"
+                  style={{ bottom: 8, left: '15%', width: '70%', height: 8, background: 'radial-gradient(ellipse, rgba(0,0,0,0.35) 0%, transparent 70%)' }}
+                />
               </div>
-              <div className="text-white/70 text-sm drop-shadow">{elapsed}s</div>
-              {onBack && (
+            );
+          })()}
+
+          {/* Lobby overlay */}
+          {gameStatus === "lobby" && (
+            <div className="absolute inset-0 z-40 flex flex-col items-center justify-center">
+              <div className="absolute inset-0 bg-black/50" />
+              <div className="relative z-10 flex flex-col items-center gap-6">
+                <div className="text-4xl text-white drop-shadow-lg">
+                  LOBBY
+                </div>
+
+                <div className="flex flex-col items-center">
+                  <div className="text-8xl text-yellow-400 drop-shadow-lg" style={{
+                    textShadow: "0 0 20px rgba(250, 204, 21, 0.5), 0 4px 0 #b45309"
+                  }}>
+                    {lobbyCountdown}
+                  </div>
+                  <div className="text-lg text-white/60 mt-2">
+                    {lobbyCountdown > 0 ? "GAME STARTS IN" : "STARTING..."}
+                  </div>
+                </div>
+
+                {/* Player list — real players from chain */}
+                <div className="flex flex-col items-center gap-3 mt-4 relative" style={{ backgroundImage: "url('/lobby_player.png')", backgroundSize: "100% 100%", backgroundRepeat: "no-repeat", padding: "40px 50px", minWidth: 380, minHeight: 200 }}>
+                  <div className="text-xl text-white font-bold" style={{ textShadow: "0 2px 4px rgba(0,0,0,0.5)" }}>
+                    PLAYERS ({lobbyPlayers.length}/10)
+                  </div>
+                  <div className="flex flex-wrap gap-6 justify-center">
+                    {lobbyPlayers.map((p, i) => (
+                      <div key={i} className="flex flex-col items-center gap-2">
+                        <div className="relative" style={{ width: 70, height: 84 }}>
+                          <Image
+                            src={`/props_${p.skin}_front.png`}
+                            alt={p.name}
+                            fill
+                            className="object-contain"
+                            style={{ imageRendering: "pixelated" }}
+                          />
+                        </div>
+                        <span className="text-base text-white font-bold" style={{ textShadow: "0 1px 3px rgba(0,0,0,0.7)" }}>
+                          {p.name}
+                        </span>
+                      </div>
+                    ))}
+                    {lobbyPlayers.length === 0 && (
+                      <div className="text-sm text-gray-500">Waiting for players...</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Share button */}
                 <button
-                  onClick={onBack}
-                  className="mt-4 px-6 py-3 bg-gray-700 hover:bg-gray-600 border-2 border-gray-500 text-white text-lg transition"
+                  onClick={() => {
+                    if (uiPreview || !resolvedGameConfigPda || !worldPda || !gameEntityPda) return;
+                    const url = `${window.location.origin}?join=${resolvedGameConfigPda.toBase58()}&world=${worldPda.toBase58()}&entity=${gameEntityPda.toBase58()}`;
+                    navigator.clipboard.writeText(url);
+                    setShareCopied(true);
+                    setTimeout(() => setShareCopied(false), 2000);
+                  }}
+                  disabled={uiPreview || !resolvedGameConfigPda || !worldPda || !gameEntityPda}
+                  className="px-6 py-3 bg-cyan-700 hover:bg-cyan-600 disabled:bg-gray-800 disabled:text-gray-500 disabled:border-gray-700 border-2 border-cyan-900 text-white text-lg transition"
                 >
-                  BACK TO LOBBY
+                  {uiPreview ? "SHARE (live game only)" : shareCopied ? "LINK COPIED!" : "SHARE GAME"}
                 </button>
-              )}
+
+                <div className="text-base md:text-xl text-yellow-300 font-bold mt-3" style={{ textShadow: "0 2px 8px rgba(0,0,0,0.9), 0 0 20px rgba(250,204,21,0.3)" }}>
+                  {fieldW < 600 ? "Push the button to move — DON'T MOVE during RED LIGHT" : "Press W / Z / Arrow Up to move — DON\u0027T MOVE during RED LIGHT"}
+                </div>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+
+          {/* Controls hint during playing — hidden on mobile */}
+          {gameStatus === "playing" && fieldW >= 600 && (
+            <div className="absolute bottom-4 left-0 w-full text-center z-30">
+              <span className="text-lg text-yellow-300 font-bold" style={{ textShadow: "0 2px 8px rgba(0,0,0,0.9), 0 0 20px rgba(250,204,21,0.3)" }}>
+                Press W / Z / Arrow Up — DON&apos;T MOVE during RED LIGHT
+              </span>
+            </div>
+          )}
+
+          {/* Mobile move button */}
+          {gameStatus === "playing" && fieldW < 600 && (
+            <div className="absolute z-50 flex flex-col items-center" style={{ bottom: 20, right: 20 }}>
+              <span className="text-sm text-yellow-300 font-bold mb-2" style={{ textShadow: "0 2px 6px rgba(0,0,0,0.9)" }}>PUSH TO MOVE</span>
+              <div
+                className="relative select-none"
+                style={{ width: 160, height: 95, touchAction: "none" }}
+                onTouchStart={(e) => { e.preventDefault(); setKeysDown(prev => new Set(prev).add("w")); }}
+                onTouchEnd={(e) => { e.preventDefault(); setKeysDown(prev => { const n = new Set(prev); n.delete("w"); return n; }); }}
+                onMouseDown={() => setKeysDown(prev => new Set(prev).add("w"))}
+                onMouseUp={() => setKeysDown(prev => { const n = new Set(prev); n.delete("w"); return n; })}
+              >
+                <Image
+                  src={keysDown.has("w") ? "/BOUTON_PRESSED.png" : "/BOUTON.png"}
+                  alt="move"
+                  fill
+                  className="object-contain"
+                  style={{ imageRendering: "pixelated" }}
+                  draggable={false}
+                />
+              </div>
+            </div>
+          )}
+
+
+          {/* Leaderboard — top left, visible when there are finishers */}
+          {(gameStatus === "playing" || gameStatus === "ended") && leaderboardNames.length > 0 && (
+            <div className="absolute top-1 left-1 md:top-3 md:left-3 z-40 md:bg-black/60 md:border md:border-gray-700 px-4 py-3 md:px-3 md:py-2">
+              <div className="text-base md:text-xs text-yellow-400 font-bold mb-2 md:mb-1">LEADERBOARD</div>
+              {leaderboardNames.map((e) => {
+                const isMe = e.name === playerName;
+                return (
+                  <div key={e.pubkey} className="flex items-center gap-3 md:gap-2 py-2 md:py-1">
+                    <span className="text-yellow-400 text-lg md:text-sm w-8 md:w-6">#{e.rank}</span>
+                    <div className="relative" style={{ width: fieldW < 600 ? 40 : 28, height: fieldW < 600 ? 48 : 34 }}>
+                      <Image src={`/props_${e.skin}_front.png`} alt={e.name} fill className="object-contain" style={{ imageRendering: "pixelated" }} />
+                    </div>
+                    <span className={`text-lg md:text-sm font-bold ${isMe ? "text-fuchsia-400" : "text-white"}`} style={{ textShadow: "0 1px 3px rgba(0,0,0,0.9)" }}>{e.name}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Death overlay — respawning */}
+          {gameStatus === "playing" && !playerAlive && !playerFinished && (
+            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none">
+              <div className="absolute inset-0 bg-black/40" />
+              <div className="relative z-10 flex flex-col items-center gap-2">
+                <div className="text-4xl md:text-5xl font-bold text-red-500 drop-shadow-lg">YOU DIED</div>
+                <div className="text-lg md:text-xl text-white/80 font-bold">Respawning in 5s...</div>
+              </div>
+            </div>
+          )}
+
+          {/* Game over overlay — finished */}
+          {gameStatus === "ended" && (
+            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none">
+              <div className="absolute inset-0 bg-black/50" />
+              <div className="relative z-10 flex flex-col items-center gap-3 pointer-events-auto">
+                <div className={`text-5xl font-bold drop-shadow-lg ${playerFinished ? "text-green-400" : "text-red-500"}`}>
+                  {playerFinished ? "YOU WIN!" : "GAME OVER"}
+                </div>
+                <div className="text-white/70 text-sm drop-shadow">{elapsed}s</div>
+                {onBack && (
+                  <button
+                    onClick={onBack}
+                    className="mt-4 px-6 py-3 bg-gray-700 hover:bg-gray-600 border-2 border-gray-500 text-white text-lg transition"
+                  >
+                    BACK TO LOBBY
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>{/* close game field */}
       </div>{/* close right panel */}
     </div>
