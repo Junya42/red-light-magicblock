@@ -663,7 +663,7 @@ export default function Game({
       <div className="w-full h-full relative flex flex-col">
         {/* Game countdown */}
         {gameStatus === "playing" && !isSpectate && (
-          <div className="absolute top-2 right-2 z-50">
+          <div className="absolute top-4 right-2 z-50">
             <div className={`text-3xl md:text-4xl font-bold drop-shadow-lg ${gameCountdown <= 30 ? "text-red-500" : "text-yellow-400"}`} style={{
               textShadow: gameCountdown <= 30
                 ? "0 0 20px rgba(239,68,68,0.5), 0 4px 0 #7f1d1d"
@@ -685,10 +685,15 @@ export default function Game({
 
         {/* Game field */}
         <div ref={fieldRef} className="relative overflow-hidden flex-1 w-full">
-          <Image src="/bg.png" alt="field" fill className="object-cover sm:object-fill" priority />
+          <Image src="/bg2.png" alt="field" fill className="object-cover sm:object-fill" priority />
           {light === "red" && (
             <div className="absolute inset-0 z-[1] bg-red-800/70 pointer-events-none" />
           )}
+
+          {gameStatus === "playing" ? (
+            <PriceChart price={price} history={history} lastOnChainPrice={lastPrice} light={light} />
+          ) : null}
+
 
           {/* Finish line (2/9) — checkerboard pattern */}
           {/* <div className="absolute left-1/2 w-[36%] -translate-x-1/2 z-10 opacity-50" style={{
@@ -697,13 +702,13 @@ export default function Game({
             backgroundImage: `repeating-conic-gradient(#000 0% 25%, #fff 0% 50%)`,
             backgroundSize: "20px 20px",
           }} /> */}
-          <FinishLine lastOnChainPrice={lastPrice} fieldH={fieldH} fieldW={fieldW} />
+          {/* <FinishLine lastOnChainPrice={lastPrice} fieldH={fieldH} fieldW={fieldW} /> */}
 
 
           {/* Doll + lights — above finish line (0/9) */}
           <div
             className="absolute z-20 transition-transform duration-300"
-            style={{ left: screenW / 2 - dSize / 2, top: FINISH_LINE_Y - dSize * 1.5 - 10, width: dSize, height: dSize * 1.5 }}
+            style={{ left: screenW / 2 - dSize / 2, top: FINISH_LINE_Y - dSize * 1.5 - 28, width: dSize, height: dSize * 1.5 }}
           >
             <Image
               src={light === "red" ? "/girls front.png" : "/girls back.png"}

@@ -56,7 +56,7 @@ export default function PriceChart({ price, history, lastOnChainPrice, light }: 
     if (lastOnChainPrice && lastOnChainPrice > 0) prices.push(lastOnChainPrice);
     const min = Math.min(...prices);
     const max = Math.max(...prices);
-    const pad = Math.max((max - min) * 0.3, (min || 80) * RANGE_PADDING);
+    const pad = Math.max((max - min) * 0.001, (min || 80) * RANGE_PADDING);
     return { min: min - pad, max: max + pad };
   }, [visiblePts, price, lastOnChainPrice]);
 
@@ -99,50 +99,12 @@ export default function PriceChart({ price, history, lastOnChainPrice, light }: 
     const elapsed = Date.now() - lastCheckRef.current;
     const tNorm = Math.min(1, elapsed / CHECK_INTERVAL_MS);
     const leftEdge = -tNorm * blockW;
-    const vL = Math.max(0, leftEdge);
-    const vR = Math.min(chartW, leftEdge + blockW);
 
-    ctx.fillStyle = "rgba(148, 163, 184, 0.08)";
-    ctx.fillRect(0, 0, chartW, h);
-
-    if (vR > vL) {
-      ctx.fillStyle = "rgba(148, 163, 184, 0.16)";
-      ctx.fillRect(vL, 0, vR - vL, h);
-
-      ctx.strokeStyle = "rgba(226, 232, 240, 0.55)";
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(vL + 0.5, 0);
-      ctx.lineTo(vL + 0.5, h);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(vR - 0.5, 0);
-      ctx.lineTo(vR - 0.5, h);
-      ctx.stroke();
-    }
-
-    ctx.strokeStyle = "rgba(226, 232, 240, 0.28)";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(0.5, 0.5, chartW - 1, h - 1);
-
-    // Right edge of chart = “now”; subtle line so the live edge is readable
-    ctx.beginPath();
-    ctx.strokeStyle = "rgba(248, 250, 252, 0.35)";
-    ctx.lineWidth = 1;
-    ctx.moveTo(chartW, 0);
-    ctx.lineTo(chartW, h);
-    ctx.stroke();
 
     // Red zone — below lastOnChainPrice (only show when green — can't go red from red)
     if (lastOnChainPrice && lastOnChainPrice > 0 && light === "green") {
       const redY = priceToY(lastOnChainPrice);
       if (redY < h) {
-        const grad = ctx.createLinearGradient(0, redY, 0, h);
-        grad.addColorStop(0, "rgba(120, 20, 20, 0.3)");
-        grad.addColorStop(1, "rgba(80, 10, 10, 0.6)");
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, redY, w, h - redY);
-
         // Danger line
         ctx.beginPath();
         ctx.strokeStyle = "rgba(150, 30, 30, 0.7)";
@@ -152,12 +114,6 @@ export default function PriceChart({ price, history, lastOnChainPrice, light }: 
         ctx.lineTo(w, redY);
         ctx.stroke();
         ctx.setLineDash([]);
-
-        // Label
-        ctx.font = "bold 11px monospace";
-        ctx.fillStyle = "rgba(180, 50, 50, 0.8)";
-        ctx.textAlign = "left";
-        ctx.fillText("RED ZONE", 8, redY + 14);
       }
     }
 
@@ -165,13 +121,6 @@ export default function PriceChart({ price, history, lastOnChainPrice, light }: 
     ctx.strokeStyle = "rgba(255,255,255,0.05)";
     ctx.lineWidth = 1;
     const steps = 6;
-    for (let i = 1; i < steps; i++) {
-      const y = (h / steps) * i;
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(w, y);
-      ctx.stroke();
-    }
 
     // Y-axis labels — far right edge
     ctx.font = "bold 13px monospace";
@@ -182,13 +131,6 @@ export default function PriceChart({ price, history, lastOnChainPrice, light }: 
       const p = range.max - (i / steps) * (range.max - range.min);
       ctx.fillText(`$${p.toFixed(4)}`, w - 8, y + 5);
     }
-    // Separator line between chart and labels
-    ctx.beginPath();
-    ctx.strokeStyle = "rgba(255,255,255,0.1)";
-    ctx.lineWidth = 1;
-    ctx.moveTo(chartW + 4, 0);
-    ctx.lineTo(chartW + 4, h);
-    ctx.stroke();
 
     if (pts.length < 2) return;
 
@@ -270,33 +212,25 @@ export default function PriceChart({ price, history, lastOnChainPrice, light }: 
   }, []);
 
   return (
-    <div ref={containerRef} className="relative w-full h-full overflow-hidden" style={{ backgroundImage: "url('/BACKGROUND.png')", backgroundSize: "cover", backgroundPosition: "center" }}>
-      <div className="absolute inset-0 bg-black/40" />
-      {/* Header */}
-      <div className="absolute top-4 left-5 z-10 flex flex-col gap-1">
-        <span className="text-2xl font-bold text-red-500">SOL/USD</span>
-      </div>
+    <div className="h-full w-full relative">
+      <div ref={containerRef} className="absolute top-[65%] left-1/2 w-full sm:w-[26%] h-[28%] -translate-x-1/2 -translate-y-1/3 overflow-hidden z-20">
+        <div className="h-full w-full relative">
 
-      {/* Light indicator + check countdown */}
-      <div className="absolute top-4 right-4 z-10 flex flex-col items-end gap-2">
-        <div className={`px-5 py-3 rounded-lg font-bold text-2xl ${
-          light === "red"
-            ? "bg-red-900/60 text-red-400 border border-red-700"
-            : "bg-green-900/60 text-green-400 border border-green-700"
-        }`}>
-          {light === "red" ? "RED LIGHT" : "GREEN LIGHT"}
-        </div>
-        <div className="text-lg font-mono text-gray-400">
-          Checking in <span className="text-yellow-400 font-bold">{checkCountdown}s</span>
+          {/* Light indicator + check countdown */}
+          <div className="absolute top-0 right-4 z-10 flex flex-col items-end gap-2">
+            <div className="text-lg font-mono text-white">
+              Checking in <span className="text-yellow-400 font-bold">{checkCountdown}s</span>
+            </div>
+          </div>
+
+          {/* Canvas */}
+          <canvas
+            ref={canvasRef}
+            className="absolute inset-0 h-full bottom-0"
+            style={{ width: size.w }}
+          />
         </div>
       </div>
-
-      {/* Canvas */}
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0"
-        style={{ width: size.w, height: size.h }}
-      />
     </div>
   );
 }
