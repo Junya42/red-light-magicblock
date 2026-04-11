@@ -4,6 +4,7 @@ import { PricePoint } from "../hooks/useSolPrice";
 
 const HISTORY_WINDOW_MS = 60_000; // 60s of history visible
 const RANGE_PADDING = 0.00000005; // 0.05% padding — much tighter range for precision
+const VERTICAL_INSET_RATIO = 0.14; // keep curve away from top/bottom canvas edges
 
 interface Props {
   price: number | null;
@@ -77,9 +78,13 @@ export default function PriceChart({ price, history, lastOnChainPrice, light }: 
     const windowStart = now - HISTORY_WINDOW_MS;
     const pts = visiblePts;
 
+    const plotTop = h * VERTICAL_INSET_RATIO;
+    const plotBottom = h * (1 - VERTICAL_INSET_RATIO);
+    const plotHeight = plotBottom - plotTop;
+
     const priceToY = (p: number) => {
       const ratio = (range.max - p) / (range.max - range.min);
-      return Math.max(0, Math.min(h, ratio * h));
+      return Math.max(plotTop, Math.min(plotBottom, plotTop + ratio * plotHeight));
     };
 
     const chartW = w * 0.75; // chart uses 3/4 of width
@@ -104,7 +109,7 @@ export default function PriceChart({ price, history, lastOnChainPrice, light }: 
     // Red zone — below lastOnChainPrice (only show when green — can't go red from red)
     if (lastOnChainPrice && lastOnChainPrice > 0 && light === "green") {
       const redY = priceToY(lastOnChainPrice);
-      if (redY < h) {
+      if (redY < plotBottom) {
         // Danger line
         ctx.beginPath();
         ctx.strokeStyle = "rgba(150, 30, 30, 0.7)";
@@ -127,7 +132,7 @@ export default function PriceChart({ price, history, lastOnChainPrice, light }: 
     ctx.fillStyle = "rgba(255,255,255,0.6)";
     ctx.textAlign = "right";
     for (let i = 0; i <= steps; i++) {
-      const y = (h / steps) * i;
+      const y = plotTop + (plotHeight / steps) * i;
       const p = range.max - (i / steps) * (range.max - range.min);
       ctx.fillText(`$${p.toFixed(4)}`, w - 8, y + 5);
     }
@@ -136,16 +141,16 @@ export default function PriceChart({ price, history, lastOnChainPrice, light }: 
 
     // Gradient fill under curve
     const lineColor = light === "red" ? "#ef4444" : "#22d3ee";
-    const grad2 = ctx.createLinearGradient(0, 0, 0, h);
+    const grad2 = ctx.createLinearGradient(0, plotTop, 0, plotBottom);
     grad2.addColorStop(0, light === "red" ? "rgba(239, 68, 68, 0.15)" : "rgba(34, 211, 238, 0.15)");
     grad2.addColorStop(1, light === "red" ? "rgba(239, 68, 68, 0.0)" : "rgba(34, 211, 238, 0.0)");
 
     ctx.beginPath();
-    ctx.moveTo(timeToX(pts[0].timestamp), h);
+    ctx.moveTo(timeToX(pts[0].timestamp), plotBottom);
     for (const pt of pts) {
       ctx.lineTo(timeToX(pt.timestamp), priceToY(pt.price));
     }
-    ctx.lineTo(timeToX(pts[pts.length - 1].timestamp), h);
+    ctx.lineTo(timeToX(pts[pts.length - 1].timestamp), plotBottom);
     ctx.closePath();
     ctx.fillStyle = grad2;
     ctx.fill();
@@ -226,8 +231,8 @@ export default function PriceChart({ price, history, lastOnChainPrice, light }: 
           {/* Canvas */}
           <canvas
             ref={canvasRef}
-            className="absolute inset-0 h-full bottom-0"
-            style={{ width: size.w }}
+            className="absolute inset-0 bottom-0"
+            style={{ width: size.w, height: size.h }}
           />
         </div>
       </div>
